@@ -1,0 +1,128 @@
+category,item_name,price,item_id
+Bakery,Egg Puff,30,ITEM001
+Bakery,Veg Puff,25,ITEM002
+Bakery,Samosa (Big),25,ITEM003
+Bakery,"Samosa (Small, 4 Pieces)",30,ITEM004
+Bakery,Small Samosa Half Plate,15,ITEM005
+Bakery,Cream Bun,25,ITEM006
+Bakery,Maska Bun,40,ITEM007
+Bakery,Dilpasand,25,ITEM008
+Bakery,Dilkhush,25,ITEM009
+Bakery,Love Bite,20,ITEM010
+Bakery,Oreo Biscuit,10,ITEM011
+Bakery,Hide & Seek Biscuit,30,ITEM012
+Bakery,Biscuit10,10,ITEM013
+Bakery,Biscuit 35,35,ITEM014
+Bakery,Lays,20,ITEM015
+Bakery,Kurkure,20,ITEM016
+Bakery,Chips 20,20,ITEM017
+Bakery,Bingo 20,20,ITEM018
+Bakery,Bingo Tedhe Medhe,20,ITEM019
+Bakery,Chips 30,30,ITEM020
+Bakery,Chocolate (Silk),10,ITEM021
+Bakery,Snickers,20,ITEM022
+Bakery,Munch,10,ITEM023
+Bakery,5 Star,20,ITEM024
+Bakery,Dairy Milk,20,ITEM025
+Bakery,Munch 5,5,ITEM026
+Bakery,Ice Cream 10,10,ITEM027
+Bakery,Ice Cream 18,18,ITEM028
+Bakery,Ice Cream 20,20,ITEM029
+Bakery,Ice Cream 22,22,ITEM030
+Bakery,Ice Cream 25,25,ITEM031
+Bakery,Ice Cream 30,30,ITEM032
+Bakery,Ice Cream 35,35,ITEM033
+Bakery,Ice Cream 40,40,ITEM034
+Bakery,Ice Cream 45,45,ITEM035
+Bakery,Ice Cream 50,50,ITEM036
+Bakery,Ice Cream 70,70,ITEM037
+Bakery,Pineapple Pastry,50,ITEM038
+Bakery,Black Forest Pastry,60,ITEM039
+Bakery,Badam Milk,40,ITEM040
+Bakery,Water Bottle,20,ITEM041
+Bakery,Thums Up,20,ITEM042
+Bakery,Pulpy Orange,25,ITEM043
+Bakery,Diet Coke,40,ITEM044
+Bakery,Maaza,20,ITEM045
+Bakery,Maaza 10,10,ITEM046
+Bakery,Sprite,20,ITEM047
+Bakery,Fanta,20,ITEM048
+Bakery,Coca-Cola,20,ITEM049
+Bakery,Smooth 20,20,ITEM050
+Bakery,Appy Fizz,40,ITEM051
+Bakery,Mogu Mogu,40,ITEM052
+Bakery,Red Bull,125,ITEM053
+Bakery,Appy Fizz Tin,40,ITEM054
+Bakery,Monster,125,ITEM055
+Bakery,BRU Cold Coffee,60,ITEM056
+Bakery,Campa 20,20,ITEM057
+Bakery,Jeera Soda,10,ITEM058
+Bakery,Butter Milk,15,ITEM059
+Beverages,Tea,20,ITEM060
+Beverages,Coffee,25,ITEM061
+Beverages,Milk,20,ITEM062
+Beverages,Horlicks,25,ITEM063
+Beverages,Boost,25,ITEM064
+Beverages,Lemon Tea,30,ITEM065
+Beverages,Green Tea,30,ITEM066
+Beverages,Black Coffee,25,ITEM067
+Beverages,Mosambi Juice,40,ITEM068
+Beverages,Pineapple Juice,40,ITEM069
+Beverages,Grape Juice,40,ITEM070
+Beverages,Watermelon Juice,40,ITEM071
+Beverages,Muskmelon Juice,40,ITEM072
+Beverages,Mango Juice,40,ITEM073
+Beverages,Sapota Juice,40,ITEM074
+Beverages,Cut Fruit Bowl,40,ITEM075
+Beverages,Mango Milkshake,50,ITEM076
+Beverages,Oreo Milkshake,50,ITEM077
+Beverages,Strawberry Milkshake,50,ITEM078
+Beverages,Chocolate Milkshake,50,ITEM079
+Mess,Veg Noodles,75,ITEM080
+Mess,Veg Manchuria,80,ITEM081
+Mess,Paneer Fried Rice,110,ITEM082
+Mess,Schezwan Noodles,85,ITEM083
+Mess,Veg Fried Rice,90,ITEM084
+Mess,Manchuria Noodles,85,ITEM085
+Mess,Manchuria Fried Rice,100,ITEM086
+Mess,Shezwan Fried Rice,90,ITEM087
+Mess,Shezwan Manchuria,85,ITEM088
+Mess,Veg Grilled Sandwich,59,ITEM089
+Mess,Veg Cheese Sandwich,89,ITEM090
+Mess,Tandoori Veg Burger Sandwich,89,ITEM091
+Mess,Paneer Cheese Sandwich,99,ITEM092
+Mess,Chipotle Paneer Cheese Sandwich,99,ITEM093
+Mess,Tandoori Paneer Cheese Sandwich,99,ITEM094
+Mess,Classic Veg Burger,69,ITEM095
+Mess,Veg Cheese Burger,89,ITEM096
+Mess,Tandoori Veg Burger,99,ITEM097
+Mess,Chipotle Cheese Burger,99,ITEM098
+Mess,Salted Fries,59,ITEM099
+Mess,Peri Peri Fries,69,ITEM100
+Mess,Veg Cheese Nuggets,79,ITEM101
+Mess,Chilli Potato Pops,79,ITEM102
+Mess,Veggie Finger,89,ITEM103
+Mess,Veg Cheese Balls,89,ITEM104
+Mess,Margherita Pizza,109,ITEM105
+Mess,Garden Fresh Pizza,129,ITEM106
+Mess,Paneer Tikka Pizza,159,ITEM107
+Mess,BBQ Paneer Pizza,179,ITEM108
+Mess,Tandoori Paneer Pizza,179,ITEM109
+Mess,Cheese Corn Pizza,129,ITEM110
+Mess,Tangy Tomato Pizza,129,ITEM111
+Mess,Veg Hot Dog,60,ITEM112
+Mess,Paneer Hot Dog,70,ITEM113
+Mess,Jeera Rice,85,ITEM114
+Mess,Veg Meals,120,ITEM115
+Mess,Parota with Kurma,55,ITEM116
+Mess,Curd,30,ITEM117
+Mess,Curry,30,ITEM118
+Mess,Special Meals,120,ITEM119
+Mess,Curd Rice,60,ITEM120
+Mess,Sweet,35,ITEM121
+Mess,Idly,45,ITEM122
+Mess,Vada,45,ITEM123
+Mess,Poori,45,ITEM124
+Mess,Plain Dosa,35,ITEM125
+Mess,Masala Dosa,45,ITEM126
+Mess,Onion Dosa,45,ITEM127

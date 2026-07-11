@@ -1,0 +1,14 @@
+{
+  "name": "canteen-seed",
+  "version": "1.0.0",
+  "description": "Firestore menu seeder for Canteen App",
+  "main": "seed.js",
+  "type": "module",
+  "scripts": {
+    "seed": "node seed.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0",
+    "google-auth-library": "^10.7.0"
+  }
+}
