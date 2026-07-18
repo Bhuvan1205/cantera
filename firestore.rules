@@ -79,11 +79,25 @@ service cloud.firestore {
       // Ensure only valid initial orders can be placed
       allow create: if signedIn() && 
         request.resource.data.userId == request.auth.uid &&
-        request.resource.data.keys().hasOnly(['userId', 'items', 'total', 'status', 'overall_status', 'tokenNumber', 'timestamp', 'categoryTokens', 'order_id']) &&
+        request.resource.data.keys().hasOnly(['userId', 'items', 'total', 'status', 'overall_status', 'tokenNumber', 'timestamp', 'categoryTokens', 'order_id', 'paymentMethod']) &&
         request.resource.data.status == 'placed' &&
-        request.resource.data.overall_status == 'active';
+        request.resource.data.overall_status == 'active' &&
+        (!('paymentMethod' in request.resource.data) ||
+         request.resource.data.paymentMethod != 'wallet' ||
+         (
+           exists(/databases/$(database)/documents/wallet_transactions/$(orderId)) &&
+           get(/databases/$(database)/documents/wallet_transactions/$(orderId)).data.amount == request.resource.data.total &&
+           get(/databases/$(database)/documents/wallet_transactions/$(orderId)).data.status == 'success'
+         )
+        );
         
-      allow update: if isAdmin() && request.resource.data.userId == resource.data.userId;
+      allow update: if (isAdmin() && request.resource.data.userId == resource.data.userId) || (
+        signedIn() &&
+        resource.data.userId == request.auth.uid &&
+        resource.data.status == 'placed' &&
+        request.resource.data.status == 'refund_pending' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+      );
       allow delete: if false;
 
       // Tokens subcollection rules
@@ -124,6 +138,128 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if isAdmin() || isValidQueueCreate(itemName);
       allow update: if isAdmin() || isValidQueueUpdate();
+    }
+
+    // ── Wallets rules ────────────────────────────────────────────────────────
+    match /wallets/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      // Users can only initialize their own wallet with 0 balance, or with a positive balance matching a deposit
+      allow create: if signedIn() && request.auth.uid == userId &&
+        (
+          (
+            request.resource.data.balance == 0.0 &&
+            request.resource.data.total_added == 0.0 &&
+            request.resource.data.total_spent == 0.0
+          ) ||
+          (
+            request.resource.data.balance > 0.0 &&
+            request.resource.data.total_added == request.resource.data.balance &&
+            request.resource.data.total_spent == 0.0
+          )
+        );
+      // Allow updates if admin, or if owner is performing a debit (purchase) or credit (deposit)
+      allow update: if isAdmin() || (
+        signedIn() && request.auth.uid == userId &&
+        (
+          // Case 1: Debit (purchase)
+          (
+            request.resource.data.balance < resource.data.balance &&
+            request.resource.data.balance >= 0.0 &&
+            request.resource.data.total_spent == resource.data.total_spent + (resource.data.balance - request.resource.data.balance) &&
+            request.resource.data.total_added == resource.data.total_added &&
+            request.resource.data.last_order_id is string
+          ) ||
+          // Case 2: Credit (deposit)
+          (
+            request.resource.data.balance > resource.data.balance &&
+            request.resource.data.total_spent == resource.data.total_spent &&
+            request.resource.data.total_added == resource.data.total_added + (request.resource.data.balance - resource.data.balance)
+          )
+        )
+      );
+      allow delete: if false;
+    }
+
+    // ── Wallet Transactions rules ────────────────────────────────────────────
+    match /wallet_transactions/{transactionId} {
+      allow read: if signedIn() && (resource.data.user_uid == request.auth.uid || isAdmin());
+      // Users can only create purchase or deposit transactions matching their wallet balance change
+      allow create: if isAdmin() || (
+        signedIn() &&
+        request.resource.data.user_uid == request.auth.uid &&
+        request.resource.data.status == 'success' &&
+        request.resource.data.initiated_by == request.auth.uid &&
+        (
+          // Case 1: Purchase (debit)
+          (
+            request.resource.data.type == 'purchase' &&
+            exists(/databases/$(database)/documents/wallets/$(request.auth.uid)) &&
+            request.resource.data.amount == get(/databases/$(database)/documents/wallets/$(request.auth.uid)).data.balance - request.resource.data.balance_after &&
+            request.resource.data.reference_type == 'order' &&
+            request.resource.data.reference_id == transactionId
+          ) ||
+          // Case 2: Deposit (credit)
+          (
+            request.resource.data.type == 'deposit' &&
+            request.resource.data.reference_type == 'pending_deposit' &&
+            (
+              (
+                exists(/databases/$(database)/documents/wallets/$(request.auth.uid)) &&
+                request.resource.data.amount == request.resource.data.balance_after - get(/databases/$(database)/documents/wallets/$(request.auth.uid)).data.balance
+              ) ||
+              (
+                !exists(/databases/$(database)/documents/wallets/$(request.auth.uid)) &&
+                request.resource.data.amount == request.resource.data.balance_after
+              )
+            )
+          )
+        )
+      );
+      allow update: if signedIn() &&
+        resource.data.user_uid == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['order_id', 'reference_id']) &&
+        (resource.data.order_id == 'pending' || resource.data.order_id == null);
+      allow delete: if false;
+    }
+
+    // ── Pending Deposits rules ───────────────────────────────────────────────
+    match /pending_deposits/{depositId} {
+      allow read: if signedIn() && (resource.data.user_uid == request.auth.uid || isAdmin());
+      allow create: if signedIn() &&
+        request.resource.data.user_uid == request.auth.uid &&
+        request.resource.data.amount >= 20.0 &&
+        request.resource.data.amount <= 500.0 &&
+        request.resource.data.status == 'awaiting_review' &&
+        request.resource.data.keys().hasAll(['user_uid', 'amount', 'razorpay_payment_id', 'gateway', 'status', 'created_at']);
+      allow update: if isAdmin() || (
+        signedIn() &&
+        resource.data.user_uid == request.auth.uid &&
+        request.resource.data.status == 'approved' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewed_at', 'reviewed_by'])
+      );
+      allow delete: if false;
+    }
+
+    // ── Refund Requests rules ────────────────────────────────────────────────
+    match /refund_requests/{requestId} {
+      allow read: if signedIn() && (resource.data.user_uid == request.auth.uid || isAdmin());
+      allow create: if signedIn() &&
+        request.resource.data.user_uid == request.auth.uid &&
+        (request.resource.data.status == 'refund_requested' || request.resource.data.status == 'pending') &&
+        exists(/databases/$(database)/documents/Orders/$(request.resource.data.order_id)) &&
+        get(/databases/$(database)/documents/Orders/$(request.resource.data.order_id)).data.userId == request.auth.uid &&
+        get(/databases/$(database)/documents/Orders/$(request.resource.data.order_id)).data.status == 'placed';
+      allow update: if isAdmin() && (
+        // Verify only valid progressive state transitions
+        (resource.data.status == 'refund_requested' && request.resource.data.status == 'refund_under_review') ||
+        (resource.data.status == 'refund_under_review' && request.resource.data.status == 'approved') ||
+        (resource.data.status == 'approved' && request.resource.data.status == 'credited') ||
+        (resource.data.status == 'refund_under_review' && request.resource.data.status == 'credited') ||
+        (resource.data.status == 'refund_under_review' && request.resource.data.status == 'rejected') ||
+        // allow jumping straight from requested/pending to resolved states for convenience
+        ((resource.data.status == 'refund_requested' || resource.data.status == 'pending') && (request.resource.data.status == 'credited' || request.resource.data.status == 'rejected' || request.resource.data.status == 'refund_under_review'))
+      );
+      allow delete: if false;
     }
   }
 }

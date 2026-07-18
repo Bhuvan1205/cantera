@@ -11,6 +11,10 @@ Color getStatusColor(String status) {
       return const Color(0xFFB87333); // Copper/amber – kitchen in progress
     case 'delivered':
       return AppColors.success; // Eco success green
+    case 'refund_pending':
+      return const Color(0xFFB87333); // Warm amber
+    case 'cancelled':
+      return AppColors.error; // Premium red/coral
     default:
       return AppColors.textMuted; // Soft warm slate grey
   }

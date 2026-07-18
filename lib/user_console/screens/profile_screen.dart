@@ -3,6 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../theme/app_colors.dart';
+import '../../wallet/models/wallet_model.dart';
+import '../../wallet/screens/wallet_screen.dart';
+import '../../wallet/services/wallet_service.dart';
+import '../../wallet/utils/wallet_formatters.dart';
 import '../services/auth_service.dart';
 import '../utils/app_keys.dart';
 
@@ -45,6 +49,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _signOut() async {
     await FirebaseAuth.instance.signOut();
+  }
+
+  void _openWallet() {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const WalletScreen()),
+    );
   }
 
   /// Shows the two-step Change PIN dialog (password → new PIN).
@@ -436,6 +448,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         setState(() => _pinVisible = !_pinVisible),
                     onChangeTap: _showChangePinDialog,
                   ),
+                  const SizedBox(height: 14),
+                  // ── Wallet Card ────────────────────────────────────────────
+                  _WalletEntryCard(
+                    key: AppKeys.profileWalletCard,
+                    userId: FirebaseAuth.instance.currentUser?.uid ?? '',
+                    onTap: _openWallet,
+                  ),
                   const SizedBox(height: 32),
                   if (widget.isAdmin) ...[
                     SizedBox(
@@ -568,6 +587,114 @@ class _ProfileScreenState extends State<ProfileScreen> {
 }
 
 // ── Sub-widgets ───────────────────────────────────────────────────────────────
+
+/// A tappable wallet entry card shown on the Profile screen.
+/// Streams the live wallet balance for display.
+class _WalletEntryCard extends StatelessWidget {
+  const _WalletEntryCard({
+    super.key,
+    required this.userId,
+    required this.onTap,
+  });
+
+  final String userId;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<WalletModel?>(
+      stream: WalletService.watchWallet(userId),
+      builder: (context, snap) {
+        final wallet = snap.data;
+        final isLoading =
+            snap.connectionState == ConnectionState.waiting;
+
+        return GestureDetector(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF0F382B), Color(0xFF1A5C42)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.25),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(
+                    Icons.account_balance_wallet_rounded,
+                    color: Colors.white,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Cantora Wallet',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xAAFFFFFF),
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      isLoading
+                          ? Container(
+                              width: 80,
+                              height: 20,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                            )
+                          : Text(
+                              wallet == null
+                                  ? 'Set up wallet'
+                                  : WalletFormatters.currency(wallet.balance),
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.white,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: Colors.white54,
+                  size: 24,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 
 /// A single row in the profile info list (name, email, role, etc.).
 class _InfoCard extends StatelessWidget {

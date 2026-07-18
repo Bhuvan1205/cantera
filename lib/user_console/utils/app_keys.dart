@@ -65,6 +65,24 @@ abstract final class AppKeys {
   static const Key navOrdersTab = Key('nav_orders_tab');
   static const Key navCartTab   = Key('nav_cart_tab');
 
+  // ── Wallet Screen ─────────────────────────────────────────────────────────
+  static const Key walletBalanceCard      = Key('wallet_balance_card');
+  static const Key walletAddMoneyButton   = Key('wallet_add_money_button');
+  static const Key walletViewAllButton    = Key('wallet_view_all_button');
+
+  // ── Add Money Screen ──────────────────────────────────────────────────────
+  static const Key addMoneyAmountField    = Key('add_money_amount_field');
+  static const Key addMoneySubmitButton   = Key('add_money_submit_button');
+
+  // ── Cart — Payment Method Selector ────────────────────────────────────────
+  static const Key paymentMethodSelector  = Key('payment_method_selector');
+
+  // ── Order Detail — Refund ─────────────────────────────────────────────────
+  static const Key orderRefundButton      = Key('order_refund_button');
+
+  // ── Profile — Wallet Entry ────────────────────────────────────────────────
+  static const Key profileWalletCard      = Key('profile_wallet_card');
+
   // ── Shared / Generic ─────────────────────────────────────────────────────
   /// Used on loading spinners when no more specific key applies.
   static const Key loadingIndicator = Key('loading_indicator');

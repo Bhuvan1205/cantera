@@ -89,6 +89,10 @@ class _OrderQrScreenState extends State<OrderQrScreen> {
         return 'preparing';
       case 'delivered':
         return 'delivered';
+      case 'refund_pending':
+        return 'refund_pending';
+      case 'cancelled':
+        return 'cancelled';
       default:
         return 'pending';
     }
@@ -118,6 +122,66 @@ class _OrderQrScreenState extends State<OrderQrScreen> {
         final data = snapshot.data!.data()!;
         final overallStatus =
             _normalizeOrderStatus(data['status'] as String?);
+
+        if (overallStatus == 'cancelled') {
+          return Scaffold(
+            backgroundColor: AppColors.bg,
+            appBar: AppBar(
+              leading: IconButton(
+                onPressed: () => Navigator.maybePop(context),
+                icon: const Icon(Icons.arrow_back_ios_new_rounded),
+              ),
+              title: const Text('Cancelled Order'),
+            ),
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.cancel_outlined,
+                      color: AppColors.error,
+                      size: 80,
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Order Refunded',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'This order has been cancelled and refunded to your wallet. The pickup QR code is no longer valid.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: AppColors.textMuted,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    ElevatedButton(
+                      onPressed: () => Navigator.maybePop(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        minimumSize: const Size(200, 48),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: const Text('Back to Order'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
         final categoryTokens =
             data['categoryTokens'] as Map<String, dynamic>?;
 

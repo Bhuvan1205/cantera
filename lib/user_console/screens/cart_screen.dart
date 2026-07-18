@@ -1,6 +1,9 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../theme/app_colors.dart';
+import '../../wallet/services/wallet_service.dart';
+import '../../wallet/widgets/payment_method_selector.dart';
 import '../utils/app_keys.dart';
 import '../widgets/app_bottom_nav.dart';
 
@@ -64,7 +67,10 @@ class ReviewOrderScreen extends StatefulWidget {
   final void Function(String id) onDecrease;
   final void Function(String id) onIncrease;
   final void Function(String id) onRemove;
-  final Future<void> Function(BuildContext context) onPlaceOrder;
+
+  /// Called when the user taps Place Order.
+  /// Receives the [BuildContext] and the chosen [OrderPaymentMethod].
+  final Future<void> Function(BuildContext context, OrderPaymentMethod method) onPlaceOrder;
   final double ecoFee;
   final bool isPlacingOrder;
   final VoidCallback? onHomeTap;
@@ -78,6 +84,9 @@ class ReviewOrderScreen extends StatefulWidget {
 class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
   List<CartItemData> get _items =>
       widget.cartItemsBuilder?.call() ?? widget.cartItems;
+
+  OrderPaymentMethod _paymentMethod = OrderPaymentMethod.wallet;
+  String get _userId => FirebaseAuth.instance.currentUser?.uid ?? '';
 
   double get _subtotal => _items.fold(0, (sum, i) => sum + i.lineTotal);
   double get _total => _subtotal + widget.ecoFee;
@@ -218,6 +227,14 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
             isBold: true,
           ),
           const SizedBox(height: 28),
+          // ── Payment method selector ────────────────────────────────────────
+          PaymentMethodSelector(
+            key: AppKeys.paymentMethodSelector,
+            userId: _userId,
+            orderTotal: _total,
+            onMethodChanged: (method) => setState(() => _paymentMethod = method),
+          ),
+          const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
             height: 56,
@@ -225,7 +242,7 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
               key: AppKeys.cartPlaceOrderButton,
               onPressed: widget.isPlacingOrder
                   ? null
-                  : () => widget.onPlaceOrder(context),
+                  : () => widget.onPlaceOrder(context, _paymentMethod),
               child: widget.isPlacingOrder
                   ? const SizedBox(
                       width: 22,
