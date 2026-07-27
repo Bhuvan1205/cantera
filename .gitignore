@@ -43,3 +43,13 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Firebase Secret Keys & Credentials
+firebase_secret_key.json
+*-firebase-adminsdk-*.json
+lib/admin_console/*.json
+
+# Python Virtual Environment & Cache
+.venv/
+__pycache__/
+
