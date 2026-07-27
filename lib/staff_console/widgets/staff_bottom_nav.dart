@@ -52,17 +52,23 @@ class StaffBottomNav extends StatelessWidget {
               icon: Icons.inventory_2_rounded,
               label: 'INVENTORY',
             ),
-            // Quick Action: Scan
-            _buildScanAction(),
             // Tab 2: Queue
             _buildTab(
               index: 2,
               icon: Icons.view_list_rounded,
               label: 'QUEUE',
             ),
-            // Tab 3: Settings
+            // Quick Action: Scan
+            _buildScanAction(),
+            // Tab 3: Wallet
             _buildTab(
               index: 3,
+              icon: Icons.account_balance_wallet_rounded,
+              label: 'WALLET',
+            ),
+            // Tab 4: Settings
+            _buildTab(
+              index: 4,
               icon: Icons.settings_rounded,
               label: 'SETTINGS',
             ),

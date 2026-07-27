@@ -27,6 +27,8 @@ class OrderService {
   static Future<String> placeOrder({
     required Map<String, Map<String, dynamic>> cart,
     required String userId,
+    String? preGeneratedOrderId,
+    String? paymentMethod,
   }) async {
     if (cart.isEmpty) throw Exception('Cart is empty');
 
@@ -78,7 +80,9 @@ class OrderService {
 
     final sortedCategories = tokenItems.keys.toList()..sort();
 
-    final orderRef = _db.collection('Orders').doc();
+    final orderRef = preGeneratedOrderId != null
+        ? _db.collection('Orders').doc(preGeneratedOrderId)
+        : _db.collection('Orders').doc();
     final orderId = orderRef.id;
 
     // ── Pre-calculate token data and IDs ──────────────────────────────────
@@ -165,6 +169,7 @@ class OrderService {
       'timestamp': FieldValue.serverTimestamp(),
       'categoryTokens': finalCategoryTokens,
       'order_id': orderId,
+      'paymentMethod': paymentMethod,
     });
 
     // ── Step 2: Create one token sub-document per counter ─────────────────

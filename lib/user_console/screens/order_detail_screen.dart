@@ -36,6 +36,8 @@ class OrderDetailScreen extends StatelessWidget {
     this.onContactSupport,
     this.onHomeTap,
     this.onCartTap,
+    this.onRefundRequest,
+    this.isRefundPending = false,
   });
 
   final String orderId;
@@ -49,7 +51,15 @@ class OrderDetailScreen extends StatelessWidget {
   final VoidCallback? onHomeTap;
   final VoidCallback? onCartTap;
 
+  /// Called when the user confirms a refund request.
+  /// Only provided when [status] == 'placed'.
+  final Future<void> Function()? onRefundRequest;
+
+  /// True when a refund request is already pending for this order.
+  final bool isRefundPending;
+
   bool get _isDelivered => status.toLowerCase() == 'delivered';
+  bool get _isCancelled => status.toLowerCase() == 'cancelled';
 
   @override
   Widget build(BuildContext context) {
@@ -76,7 +86,8 @@ class OrderDetailScreen extends StatelessWidget {
             _QrButton(
               key: AppKeys.orderDetailQrButton,
               isDelivered: _isDelivered,
-              onTap: _isDelivered
+              isCancelled: _isCancelled,
+              onTap: (_isDelivered || _isCancelled)
                   ? null
                   : () => Navigator.push(
                         context,
@@ -86,6 +97,14 @@ class OrderDetailScreen extends StatelessWidget {
                           ),
                         ),
                       ),
+            ),
+            const SizedBox(height: 14),
+            // ── Refund Button ────────────────────────────────────────────────
+            _RefundButton(
+              key: AppKeys.orderRefundButton,
+              status: status,
+              isRefundPending: isRefundPending,
+              onRefundRequest: onRefundRequest,
             ),
             const SizedBox(height: 30),
             _SupportFooter(onTap: onContactSupport),
@@ -298,47 +317,72 @@ class _OrderItemRow extends StatelessWidget {
 }
 
 class _QrButton extends StatelessWidget {
-  const _QrButton({super.key, required this.isDelivered, this.onTap});
+  const _QrButton({
+    super.key,
+    required this.isDelivered,
+    required this.isCancelled,
+    this.onTap,
+  });
 
   final bool isDelivered;
+  final bool isCancelled;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
+    final isDisabled = isDelivered || isCancelled;
+    final titleText = isCancelled 
+        ? 'Order Refunded / Cancelled' 
+        : isDelivered 
+            ? 'Order Delivered'
+            : 'Display Pickup QR Code';
+
     return ElevatedButton(
       onPressed: onTap,
       style: ElevatedButton.styleFrom(
-        backgroundColor: isDelivered
-            ? AppColors.primary.withValues(alpha: 0.35)
+        backgroundColor: isDisabled
+            ? AppColors.cardBg
             : AppColors.primary,
+        foregroundColor: isDisabled
+            ? AppColors.textMuted
+            : Colors.white,
         padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
         minimumSize: const Size(double.infinity, 0),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: isDisabled ? const BorderSide(color: AppColors.border) : BorderSide.none,
+        ),
       ),
-      child: const Row(
+      child: Row(
         children: [
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'PICKUP IDENTIFICATION',
+                  isCancelled 
+                      ? 'REFUNDED' 
+                      : 'PICKUP IDENTIFICATION',
                   style: TextStyle(
                     fontSize: 11,
                     letterSpacing: 1.4,
-                    color: Color(0xFFAAC4B6),
+                    color: isDisabled ? AppColors.textMuted : const Color(0xFFAAC4B6),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                SizedBox(height: 4),
+                const SizedBox(height: 4),
                 Text(
-                  'Display Pickup QR Code',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  titleText,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                 ),
               ],
             ),
           ),
-          Icon(Icons.qr_code_2_rounded, size: 32),
+          Icon(
+            isCancelled ? Icons.cancel_outlined : Icons.qr_code_2_rounded, 
+            size: 32,
+            color: isDisabled ? AppColors.textMuted : null,
+          ),
         ],
       ),
     );
@@ -378,6 +422,183 @@ class _SupportFooter extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Refund Button ─────────────────────────────────────────────────────────────
+
+/// Shows a refund request button when the order is in 'placed' status.
+///
+/// - Hidden when status is anything other than 'placed' or 'refund_pending'.
+/// - Shows a "Refund Pending" badge when [isRefundPending] is true.
+/// - Enabled only when status == 'placed' AND no pending refund exists.
+class _RefundButton extends StatefulWidget {
+  const _RefundButton({
+    super.key,
+    required this.status,
+    required this.isRefundPending,
+    this.onRefundRequest,
+  });
+
+  final String status;
+  final bool isRefundPending;
+  final Future<void> Function()? onRefundRequest;
+
+  @override
+  State<_RefundButton> createState() => _RefundButtonState();
+}
+
+class _RefundButtonState extends State<_RefundButton> {
+  bool _isRequesting = false;
+
+  bool get _isPlaced => widget.status.toLowerCase() == 'placed';
+  bool get _isRefundPending =>
+      widget.isRefundPending ||
+      widget.status.toLowerCase() == 'refund_pending';
+
+  /// Refund button is visible only for 'placed' or 'refund_pending' orders.
+  bool get _isVisible => _isPlaced || _isRefundPending;
+
+  Future<void> _handleRefundRequest() async {
+    // Confirm dialog before submitting.
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.cardBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Request Refund?',
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            fontSize: 18,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        content: const Text(
+          'This will cancel your order and request a refund to your wallet. '
+          'The refund will be processed by the canteen admin.',
+          style: TextStyle(
+            color: AppColors.textMuted,
+            fontSize: 14,
+            height: 1.5,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text(
+              'Keep Order',
+              style: TextStyle(color: AppColors.textMuted),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text('Request Refund'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isRequesting = true);
+    try {
+      await widget.onRefundRequest?.call();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Refund requested — pending admin review.',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Refund request failed: ${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isRequesting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_isVisible) return const SizedBox.shrink();
+
+    if (_isRefundPending) {
+      // Show informational badge — no action.
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF3CD),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFFFD966)),
+        ),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.hourglass_top_rounded, color: Color(0xFF856404), size: 18),
+            SizedBox(width: 8),
+            Text(
+              'Refund Pending Admin Review',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF856404),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return OutlinedButton.icon(
+      onPressed: _isRequesting ? null : _handleRefundRequest,
+      icon: _isRequesting
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppColors.error,
+              ),
+            )
+          : const Icon(Icons.undo_rounded, size: 18),
+      label: Text(_isRequesting ? 'Submitting…' : 'Request Refund'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppColors.error,
+        side: const BorderSide(color: AppColors.error),
+        minimumSize: const Size(double.infinity, 52),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        textStyle: const TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }

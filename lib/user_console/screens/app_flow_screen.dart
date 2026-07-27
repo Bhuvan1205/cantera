@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 
+import '../../wallet/services/wallet_service.dart';
 import '../services/auth_service.dart';
 import '../services/order_service.dart';
 import 'cart_screen.dart';
@@ -164,9 +165,16 @@ class _MenuPageState extends State<MenuPage> {
     return await OrderService.handleQrScan(scannedValue);
   }
 
-  /// Delegates order creation to [OrderService.placeOrder] which writes
-  /// the parent document, per-counter token sub-documents, and updates queues.
-  Future<void> placeOrder(BuildContext cartContext) async {
+  /// Delegates order creation to [OrderService.placeOrder].
+  ///
+  /// If [method] is [OrderPaymentMethod.wallet], credits are deducted
+  /// atomically via a Firestore Transaction before order creation.
+  /// If the order creation subsequently fails, a compensating refund
+  /// is created automatically.
+  Future<void> placeOrder(
+    BuildContext cartContext,
+    OrderPaymentMethod method,
+  ) async {
     if (cart.isEmpty || _isPlacingOrder) return;
 
     setState(() => _isPlacingOrder = true);
@@ -175,10 +183,46 @@ class _MenuPageState extends State<MenuPage> {
     final navigator = Navigator.of(cartContext);
     final userId = FirebaseAuth.instance.currentUser!.uid;
 
+    // Pre-generate the orderId client-side so we can link it in the security rules
+    final String preGeneratedOrderId = FirebaseFirestore.instance.collection('Orders').doc().id;
+
+    // Calculate total amount for wallet deduction.
+    final double orderTotal = cart.values
+        .fold(0.0, (acc, item) => acc + (item['price'] as num) * (item['quantity'] as num));
+
+    // ── Wallet purchase path ──────────────────────────────────────────────────
+    if (method == OrderPaymentMethod.wallet) {
+      try {
+        // Deduct wallet balance BEFORE placing the order.
+        await WalletService.purchaseWithWallet(
+          userId: userId,
+          amount: orderTotal,
+          orderId: preGeneratedOrderId,
+          description: 'Order payment (${cart.length} item${cart.length == 1 ? '' : 's'})',
+        );
+      } catch (e) {
+        if (mounted) setState(() => _isPlacingOrder = false);
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Wallet payment failed: ${e.toString().replaceFirst('Exception: ', '')}',
+            ),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+        return;
+      }
+    }
+
+    // ── Place the order ───────────────────────────────────────────────────────
     try {
       final orderId = await OrderService.placeOrder(
         cart: cart,
         userId: userId,
+        preGeneratedOrderId: preGeneratedOrderId,
+        paymentMethod: method == OrderPaymentMethod.wallet ? 'wallet' : 'direct',
       );
 
       clearCart();
@@ -192,7 +236,31 @@ class _MenuPageState extends State<MenuPage> {
       );
     } catch (e) {
       if (mounted) setState(() => _isPlacingOrder = false);
-      messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
+
+      // ── Compensating refund for wallet payments ────────────────────────────
+      if (method == OrderPaymentMethod.wallet) {
+        // Order failed after wallet was debited — create a refund request
+        // automatically so admin can credit back the wallet.
+        try {
+          await WalletService.createAdjustment(
+            userId: userId,
+            amount: orderTotal,
+            description: 'Auto-refund: order creation failed',
+            adminUid: 'system',
+          );
+        } catch (_) {
+          // Best-effort; admin can manually adjust if this also fails.
+        }
+      }
+
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Order failed: ${e.toString().replaceFirst('Exception: ', '')}'),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
     }
   }
 
@@ -536,6 +604,10 @@ class OrderDetailPage extends StatelessWidget {
             .map((e) => _toOrderItemData(e as Map<String, dynamic>))
             .toList();
 
+        final String userIdVal = data['userId'] as String? ?? '';
+        final double totalVal = (data['total'] as num).toDouble();
+        final String orderStatus = (data['status'] as String? ?? 'placed');
+        final bool isRefundPendingVal = orderStatus.toLowerCase() == 'refund_pending';
         final shortId = orderId.length >= 4
             ? orderId.substring(0, 4).toUpperCase()
             : orderId.toUpperCase();
@@ -548,6 +620,15 @@ class OrderDetailPage extends StatelessWidget {
           items: items,
           total: (data['total'] as num).toInt(),
           onHomeTap: () => Navigator.of(context).popUntil((route) => route.isFirst),
+          isRefundPending: isRefundPendingVal,
+          onRefundRequest: () async {
+            await WalletService.requestRefund(
+              userId: userIdVal,
+              orderId: orderId,
+              amount: totalVal,
+              reason: 'User cancelled placed order',
+            );
+          },
         );
       },
     );
@@ -635,6 +716,10 @@ String _normalizeOrderStatus(String? status) {
       return 'preparing';
     case 'delivered':
       return 'delivered';
+    case 'refund_pending':
+      return 'refund_pending';
+    case 'cancelled':
+      return 'cancelled';
     default:
       return 'pending';
   }
