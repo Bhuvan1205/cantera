@@ -16,11 +16,21 @@ import '../widgets/staff_inventory_card.dart';
 class StaffInventoryTab extends StatelessWidget {
   const StaffInventoryTab({super.key});
 
-  Future<void> _updateStock(String itemId, int currentStock, int delta) async {
-    final nextStock = math.max(0, currentStock + delta);
-    await FirebaseFirestore.instance.collection('Menu').doc(itemId).update({
-      'stock': nextStock,
-    });
+  Future<void> _updateStock(String itemId, int delta) async {
+    final docRef = FirebaseFirestore.instance.collection('Menu').doc(itemId);
+    try {
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final snapshot = await transaction.get(docRef);
+        if (!snapshot.exists) return;
+        final currentStock = ((snapshot.data()?['stock'] ?? 0) as num).toInt();
+        final nextStock = math.max(0, currentStock + delta);
+        transaction.update(docRef, {
+          'stock': nextStock,
+        });
+      });
+    } catch (e) {
+      debugPrint('Error updating stock for $itemId: $e');
+    }
   }
 
   Future<void> _toggleAvailability(String itemId, bool newValue) async {
@@ -152,8 +162,8 @@ class StaffInventoryTab extends StatelessWidget {
                   ),
                   category: category,
                   isAvailable: isAvailable,
-                  onDecrease: () => _updateStock(doc.id, stock, -1),
-                  onIncrease: () => _updateStock(doc.id, stock, 1),
+                  onDecrease: () => _updateStock(doc.id, -1),
+                  onIncrease: () => _updateStock(doc.id, 1),
                   onToggleAvailability: (newValue) =>
                       _toggleAvailability(doc.id, newValue),
                 ),
