@@ -90,59 +90,83 @@ class WalletRepository:
         order_id = refund_data.get("order_id", refund_data.get("orderId", ""))
 
         if new_status in ("approved", "credited"):
-            # Crediting wallet transaction
             wallet_ref = db.collection(_WALLETS_COL).document(user_uid)
-            wallet_snap = wallet_ref.get()
-
-            curr_balance = 0.0
-            total_added = 0.0
-            total_spent = 0.0
-
-            if wallet_snap.exists:
-                w_dict = wallet_snap.to_dict() or {}
-                curr_balance = float(w_dict.get("balance", 0.0))
-                total_added = float(w_dict.get("total_added", 0.0))
-                total_spent = float(w_dict.get("total_spent", 0.0))
-
-            new_balance = curr_balance + amount
-            new_spent = max(0.0, total_spent - amount)
-
-            wallet_ref.set({
-                "balance": new_balance,
-                "total_added": total_added,
-                "total_spent": new_spent,
-            }, merge=True)
-
-            # Create wallet transaction record
             txn_ref = db.collection(_TXNS_COL).document()
-            txn_ref.set({
-                "user_uid": user_uid,
-                "type": "refund",
-                "amount": amount,
-                "status": "completed",
-                "reference_type": "refund_request",
-                "reference_id": refund_id,
-                "order_id": order_id,
-                "balance_after": new_balance,
-                "initiated_by": f"admin:{admin_uid}",
-                "timestamp": firestore.SERVER_TIMESTAMP,
-            })
+            order_ref = db.collection(_ORDERS_COL).document(order_id) if order_id else None
 
-            # Update refund request document
-            refund_ref.update({
-                "status": "credited",
-                "reviewed_at": firestore.SERVER_TIMESTAMP,
-                "reviewed_by": admin_uid,
-            })
+            @db.transaction
+            def _run_refund(transaction):
+                # 1. Re-read refund inside transaction to prevent double approval
+                r_snap = refund_ref.get(transaction=transaction)
+                if not r_snap.exists:
+                    return False
+                r_dict = r_snap.to_dict() or {}
+                if r_dict.get("status") in ("credited", "rejected"):
+                    return False
 
-            # Update associated order if exists
-            if order_id:
-                order_ref = db.collection(_ORDERS_COL).document(order_id)
-                if order_ref.get().exists:
-                    order_ref.update({
-                        "status": "refunded",
-                        "overall_status": "completed",
+                # 2. Re-read wallet inside transaction
+                w_snap = wallet_ref.get(transaction=transaction)
+                curr_balance = 0.0
+                total_added = 0.0
+                total_spent = 0.0
+
+                if w_snap.exists:
+                    w_dict = w_snap.to_dict() or {}
+                    curr_balance = float(w_dict.get("balance", 0.0))
+                    total_added = float(w_dict.get("total_added", 0.0))
+                    total_spent = float(w_dict.get("total_spent", 0.0))
+
+                new_balance = curr_balance + amount
+                new_spent = max(0.0, total_spent - amount)
+
+                if w_snap.exists:
+                    transaction.update(wallet_ref, {
+                        "balance": new_balance,
+                        "total_added": total_added,
+                        "total_spent": new_spent,
+                        "last_updated": firestore.SERVER_TIMESTAMP,
                     })
+                else:
+                    transaction.set(wallet_ref, {
+                        "balance": new_balance,
+                        "total_added": total_added,
+                        "total_spent": new_spent,
+                        "created_at": firestore.SERVER_TIMESTAMP,
+                        "last_updated": firestore.SERVER_TIMESTAMP,
+                    })
+
+                # 3. Create wallet transaction record
+                transaction.set(txn_ref, {
+                    "user_uid": user_uid,
+                    "type": "refund",
+                    "amount": amount,
+                    "status": "completed",
+                    "reference_type": "refund_request",
+                    "reference_id": refund_id,
+                    "order_id": order_id,
+                    "balance_after": new_balance,
+                    "initiated_by": f"admin:{admin_uid}",
+                    "timestamp": firestore.SERVER_TIMESTAMP,
+                })
+
+                # 4. Update refund request document
+                transaction.update(refund_ref, {
+                    "status": "credited",
+                    "reviewed_at": firestore.SERVER_TIMESTAMP,
+                    "reviewed_by": admin_uid,
+                })
+
+                # 5. Update associated order if exists
+                if order_ref:
+                    o_snap = order_ref.get(transaction=transaction)
+                    if o_snap.exists:
+                        transaction.update(order_ref, {
+                            "status": "refunded",
+                            "overall_status": "completed",
+                        })
+                return True
+
+            _run_refund()
 
         elif new_status == "rejected":
             refund_ref.update({
