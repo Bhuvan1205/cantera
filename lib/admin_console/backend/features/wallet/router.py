@@ -20,7 +20,7 @@ router = APIRouter()
     summary="List deposit records",
     description="Returns deposit records. Optionally filter by status (awaiting_review, approved, rejected).",
 )
-async def list_deposits(
+def list_deposits(
     status: Optional[str] = Query(None, description="Filter by status: awaiting_review | approved | rejected"),
     limit: int = Query(50, ge=1, le=200),
     _admin: dict = Depends(get_current_admin),
@@ -53,7 +53,7 @@ def verify_deposit(
     summary="List refund requests",
     description="Returns refund requests. Optionally filter by status (refund_requested, refund_under_review, approved, credited, rejected).",
 )
-async def list_refunds(
+def list_refunds(
     status: Optional[str] = Query(None, description="Filter by status: refund_requested | refund_under_review | approved | credited | rejected"),
     limit: int = Query(50, ge=1, le=200),
     _admin: dict = Depends(get_current_admin),
@@ -66,7 +66,7 @@ async def list_refunds(
     response_model=RefundRequestItem,
     summary="Get single refund request",
 )
-async def get_refund(
+def get_refund(
     refund_id: str,
     _admin: dict = Depends(get_current_admin),
 ) -> RefundRequestItem:
@@ -82,7 +82,7 @@ async def get_refund(
         "credits the user's wallet, creates a wallet_transactions entry, and marks the associated order as refunded."
     ),
 )
-async def update_refund_status(
+def update_refund_status(
     refund_id: str,
     payload: UpdateRefundStatusRequest,
     admin: dict = Depends(get_current_admin),
@@ -100,7 +100,7 @@ async def update_refund_status(
     summary="Get comprehensive wallet data for user investigation",
     description="Returns wallet balance, full transaction ledger, pending deposits, and refund requests for a specific user.",
 )
-async def get_wallet_investigation(
+def get_wallet_investigation(
     uid: str,
     _admin: dict = Depends(get_current_admin),
 ) -> UserWalletInvestigation:

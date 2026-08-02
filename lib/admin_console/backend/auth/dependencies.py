@@ -8,7 +8,7 @@ from auth.verify import verify_firebase_token
 _bearer = HTTPBearer(auto_error=True)
 
 
-async def get_current_admin(
+def get_current_admin(
     http_creds: HTTPAuthorizationCredentials = Depends(_bearer),
 ) -> dict:
     """
@@ -61,7 +61,7 @@ async def get_current_admin(
     return {"uid": uid, **decoded, "user_data": user_data}
 
 
-async def get_current_user(
+def get_current_user(
     http_creds: HTTPAuthorizationCredentials = Depends(_bearer),
 ) -> dict:
     """
