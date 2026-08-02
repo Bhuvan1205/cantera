@@ -58,16 +58,41 @@ class QueueScreen extends StatelessWidget {
   }
 }
 
-class _QueueBody extends StatelessWidget {
+class _QueueBody extends StatefulWidget {
   const _QueueBody({required this.userId});
 
   final String? userId;
 
   @override
+  State<_QueueBody> createState() => _QueueBodyState();
+}
+
+class _QueueBodyState extends State<_QueueBody> {
+  late Future<QuerySnapshot<Map<String, dynamic>>> _queuesFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchQueues();
+  }
+
+  void _fetchQueues() {
+    _queuesFuture = FirebaseFirestore.instance
+        .collection('queues')
+        .get(const GetOptions(source: Source.serverAndCache));
+  }
+
+  Future<void> _handleRefresh() async {
+    setState(() {
+      _fetchQueues();
+    });
+    await _queuesFuture;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // We need two streams — queues collection + user's active orders
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('queues').snapshots(),
+    return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      future: _queuesFuture,
       builder: (context, queueSnap) {
         if (queueSnap.connectionState == ConnectionState.waiting) {
           return const Center(
@@ -85,11 +110,11 @@ class _QueueBody extends StatelessWidget {
         }
 
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: userId == null
+          stream: widget.userId == null
               ? null
               : FirebaseFirestore.instance
                   .collection('Orders')
-                  .where('userId', isEqualTo: userId)
+                  .where('userId', isEqualTo: widget.userId)
                   .where('overall_status', isEqualTo: 'active')
                   .snapshots(),
           builder: (context, ordersSnap) {
@@ -122,54 +147,59 @@ class _QueueBody extends StatelessWidget {
               });
             }).toList();
 
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
-              children: [
-                // Header
-                const Text(
-                  'Live Queue',
-                  style: TextStyle(
-                    fontSize: 32,
-                    height: 1.05,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
-                    letterSpacing: -0.5,
+            return RefreshIndicator(
+              onRefresh: _handleRefresh,
+              color: AppColors.primary,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
+                children: [
+                  // Header
+                  const Text(
+                    'Live Queue',
+                    style: TextStyle(
+                      fontSize: 32,
+                      height: 1.05,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                      letterSpacing: -0.5,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  'Track real-time preparation status for all mess items.',
-                  style: TextStyle(
-                    fontSize: 15,
-                    height: 1.5,
-                    color: AppColors.textMuted,
-                    fontWeight: FontWeight.w500,
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Track real-time preparation status for all mess items.',
+                    style: TextStyle(
+                      fontSize: 15,
+                      height: 1.5,
+                      color: AppColors.textMuted,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 24),
+                  const SizedBox(height: 24),
 
-                if (activeQueues.isEmpty)
-                  _buildEmptyState()
-                else
-                  ...activeQueues.map((doc) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 20),
-                      child: _UserQueueCard(
-                        itemName:
-                            doc.data()['item_name'] as String? ?? doc.id,
-                        avgPrepMins:
-                            (doc.data()['avg_prep_time_mins'] as num?)
-                                    ?.toInt() ??
-                                5,
-                        queue: List<Map<String, dynamic>>.from(
-                          (doc.data()['queue'] as List<dynamic>? ?? [])
-                              .map((e) => Map<String, dynamic>.from(e as Map)),
+                  if (activeQueues.isEmpty)
+                    _buildEmptyState()
+                  else
+                    ...activeQueues.map((doc) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 20),
+                        child: _UserQueueCard(
+                          itemName:
+                              doc.data()['item_name'] as String? ?? doc.id,
+                          avgPrepMins:
+                              (doc.data()['avg_prep_time_mins'] as num?)
+                                      ?.toInt() ??
+                                  5,
+                          queue: List<Map<String, dynamic>>.from(
+                            (doc.data()['queue'] as List<dynamic>? ?? [])
+                                .map((e) => Map<String, dynamic>.from(e as Map)),
+                          ),
+                          userTokenIds: userTokenIds,
                         ),
-                        userTokenIds: userTokenIds,
-                      ),
-                    );
-                  }),
-              ],
+                      );
+                    }),
+                ],
+              ),
             );
           },
         );
