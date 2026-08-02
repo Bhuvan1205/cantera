@@ -39,7 +39,11 @@ def get_current_admin(
             detail="Token is missing the uid claim.",
         )
 
-    # ── Firestore admin role check ────────────────────────────────────────────
+    # ── Fast Path: Firebase Custom Claims (0 Firestore reads) ─────────────────
+    if decoded.get("admin") is True or decoded.get("isAdmin") is True:
+        return {"uid": uid, **decoded, "user_data": {"isAdmin": True, "admin": True}}
+
+    # ── Fallback: Firestore document check (for legacy tokens) ───────────────
     user_ref = db.collection("Users").document(uid)
     user_snap = user_ref.get()
 
@@ -49,7 +53,7 @@ def get_current_admin(
             detail="User record not found in Firestore.",
         )
 
-    user_data: dict = user_snap.to_dict()
+    user_data: dict = user_snap.to_dict() or {}
 
     if not user_data.get("isAdmin", False):
         raise HTTPException(
