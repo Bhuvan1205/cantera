@@ -66,12 +66,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       if (!doc.exists) return;
       final data = doc.data()!;
       final items = _orderItemsFrom(data['items']);
-      final userId = data['userId'] as String?;
-      String userName = 'Customer';
-      if (userId != null && userId.isNotEmpty) {
-        final userDoc = await FirebaseFirestore.instance.collection('Users').doc(userId).get();
-        userName = (userDoc.data()?['name'] as String?)?.trim() ?? 'Customer';
-      }
+      final rawName = data['userName'] as String?;
+      final userName = (rawName != null && rawName.trim().isNotEmpty)
+          ? rawName.trim()
+          : 'Customer';
 
       if (!mounted) return;
 

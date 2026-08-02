@@ -3,6 +3,7 @@
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 /// Central service for all order-related Firestore writes.
 ///
@@ -159,8 +160,14 @@ class OrderService {
     }
 
     // ── Step 1: Create parent order document with final categoryTokens ─────
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final userName = (currentUser?.displayName != null && currentUser!.displayName!.trim().isNotEmpty)
+        ? currentUser.displayName!.trim()
+        : 'Customer';
+
     await orderRef.set({
       'userId': userId,
+      'userName': userName,
       'items': orderItems,
       'total': subtotal,
       'status': 'placed',

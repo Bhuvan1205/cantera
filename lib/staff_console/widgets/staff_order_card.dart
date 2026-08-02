@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../theme/app_colors.dart';
@@ -64,8 +63,8 @@ class StaffOrderCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 10),
-                // Customer Name (Asynchronous lookup)
-                _CustomerName(userId: data['userId'] as String?),
+                // Customer Name (Denormalized in order data)
+                _CustomerName(name: data['userName'] as String?),
                 const SizedBox(height: 14),
                 // List of Items
                 ...items.map(
@@ -189,38 +188,23 @@ class StaffOrderCard extends StatelessWidget {
 }
 
 class _CustomerName extends StatelessWidget {
-  const _CustomerName({required this.userId});
+  const _CustomerName({this.name});
 
-  final String? userId;
+  final String? name;
 
   @override
   Widget build(BuildContext context) {
-    if (userId == null || userId!.isEmpty) {
-      return const Text(
-        'Guest Customer',
-        style: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w800,
-          color: AppColors.primary,
-        ),
-      );
-    }
+    final displayName = (name != null && name!.trim().isNotEmpty)
+        ? _titleCase(name!.trim())
+        : 'Customer';
 
-    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      future: FirebaseFirestore.instance.collection('Users').doc(userId).get(),
-      builder: (context, snapshot) {
-        final data = snapshot.data?.data();
-        final name = (data?['name'] as String?)?.trim();
-
-        return Text(
-          name == null || name.isEmpty ? 'Customer' : _titleCase(name),
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: AppColors.primary,
-          ),
-        );
-      },
+    return Text(
+      displayName,
+      style: const TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.w800,
+        color: AppColors.primary,
+      ),
     );
   }
 

@@ -244,6 +244,7 @@ class OrderRepository:
         # ── 1. Create parent order document ──────────────────────────────────
         order_ref.set({
             "userId": "admin_placed",
+            "userName": "Walk-in Customer",
             "items": order_items_raw,
             "total": total,
             "status": "placed",
