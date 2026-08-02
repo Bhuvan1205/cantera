@@ -189,8 +189,8 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
         razorpaySignature: razorpaySignature,
         gateway: gateway,
       );
-      // Bypassing manual admin review: immediately auto-approve deposit client-side
-      await WalletService.approveDeposit(depositId, widget.userId);
+      // Send to backend for signature verification and wallet credit.
+      await WalletService.verifyDeposit(depositId);
       if (!mounted) return;
       _showSuccessAndPop(amount);
     } catch (e) {

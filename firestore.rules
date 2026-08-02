@@ -143,38 +143,23 @@ service cloud.firestore {
     // ── Wallets rules ────────────────────────────────────────────────────────
     match /wallets/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
-      // Users can only initialize their own wallet with 0 balance, or with a positive balance matching a deposit
+      // Users can only initialize their own wallet with 0 balance.
+      // The backend sets the balance upon first deposit approval via Admin SDK.
       allow create: if signedIn() && request.auth.uid == userId &&
-        (
-          (
-            request.resource.data.balance == 0.0 &&
-            request.resource.data.total_added == 0.0 &&
-            request.resource.data.total_spent == 0.0
-          ) ||
-          (
-            request.resource.data.balance > 0.0 &&
-            request.resource.data.total_added == request.resource.data.balance &&
-            request.resource.data.total_spent == 0.0
-          )
-        );
-      // Allow updates if admin, or if owner is performing a debit (purchase) or credit (deposit)
+        request.resource.data.balance == 0.0 &&
+        request.resource.data.total_added == 0.0 &&
+        request.resource.data.total_spent == 0.0;
+      // Allow updates if admin, or if owner is performing a debit (purchase) only.
+      // Wallet credits (deposits) must go through the backend approval flow only.
       allow update: if isAdmin() || (
         signedIn() && request.auth.uid == userId &&
         (
-          // Case 1: Debit (purchase)
-          (
-            request.resource.data.balance < resource.data.balance &&
-            request.resource.data.balance >= 0.0 &&
-            request.resource.data.total_spent == resource.data.total_spent + (resource.data.balance - request.resource.data.balance) &&
-            request.resource.data.total_added == resource.data.total_added &&
-            request.resource.data.last_order_id is string
-          ) ||
-          // Case 2: Credit (deposit)
-          (
-            request.resource.data.balance > resource.data.balance &&
-            request.resource.data.total_spent == resource.data.total_spent &&
-            request.resource.data.total_added == resource.data.total_added + (request.resource.data.balance - resource.data.balance)
-          )
+          // Debit only (purchase): balance decreases, total_spent increases accordingly
+          request.resource.data.balance < resource.data.balance &&
+          request.resource.data.balance >= 0.0 &&
+          request.resource.data.total_spent == resource.data.total_spent + (resource.data.balance - request.resource.data.balance) &&
+          request.resource.data.total_added == resource.data.total_added &&
+          request.resource.data.last_order_id is string
         )
       );
       allow delete: if false;
@@ -183,37 +168,19 @@ service cloud.firestore {
     // ── Wallet Transactions rules ────────────────────────────────────────────
     match /wallet_transactions/{transactionId} {
       allow read: if signedIn() && (resource.data.user_uid == request.auth.uid || isAdmin());
-      // Users can only create purchase or deposit transactions matching their wallet balance change
+      // Users can only create purchase transactions. Deposit (credit) transactions
+      // must be created by the backend only via admin approval flow.
       allow create: if isAdmin() || (
         signedIn() &&
         request.resource.data.user_uid == request.auth.uid &&
         request.resource.data.status == 'success' &&
         request.resource.data.initiated_by == request.auth.uid &&
-        (
-          // Case 1: Purchase (debit)
-          (
-            request.resource.data.type == 'purchase' &&
-            exists(/databases/$(database)/documents/wallets/$(request.auth.uid)) &&
-            request.resource.data.amount == get(/databases/$(database)/documents/wallets/$(request.auth.uid)).data.balance - request.resource.data.balance_after &&
-            request.resource.data.reference_type == 'order' &&
-            request.resource.data.reference_id == transactionId
-          ) ||
-          // Case 2: Deposit (credit)
-          (
-            request.resource.data.type == 'deposit' &&
-            request.resource.data.reference_type == 'pending_deposit' &&
-            (
-              (
-                exists(/databases/$(database)/documents/wallets/$(request.auth.uid)) &&
-                request.resource.data.amount == request.resource.data.balance_after - get(/databases/$(database)/documents/wallets/$(request.auth.uid)).data.balance
-              ) ||
-              (
-                !exists(/databases/$(database)/documents/wallets/$(request.auth.uid)) &&
-                request.resource.data.amount == request.resource.data.balance_after
-              )
-            )
-          )
-        )
+        // Purchase (debit) only
+        request.resource.data.type == 'purchase' &&
+        exists(/databases/$(database)/documents/wallets/$(request.auth.uid)) &&
+        request.resource.data.amount == get(/databases/$(database)/documents/wallets/$(request.auth.uid)).data.balance - request.resource.data.balance_after &&
+        request.resource.data.reference_type == 'order' &&
+        request.resource.data.reference_id == transactionId
       );
       allow update: if signedIn() &&
         resource.data.user_uid == request.auth.uid &&
@@ -231,12 +198,9 @@ service cloud.firestore {
         request.resource.data.amount <= 500.0 &&
         request.resource.data.status == 'awaiting_review' &&
         request.resource.data.keys().hasAll(['user_uid', 'amount', 'razorpay_payment_id', 'gateway', 'status', 'created_at']);
-      allow update: if isAdmin() || (
-        signedIn() &&
-        resource.data.user_uid == request.auth.uid &&
-        request.resource.data.status == 'approved' &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewed_at', 'reviewed_by'])
-      );
+      // Only the backend (via Admin SDK) or an admin may update a deposit.
+      // The self-approval path has been removed: deposit approval is backend-only.
+      allow update: if isAdmin();
       allow delete: if false;
     }
 

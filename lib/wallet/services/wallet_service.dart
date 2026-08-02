@@ -1,8 +1,12 @@
 // ignore_for_file: avoid_catches_without_on_clauses
 
+import 'dart:convert';
+
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 
+import '../../config/app_config.dart';
 import '../models/pending_deposit_model.dart';
 import '../models/refund_request_model.dart';
 import '../models/wallet_model.dart';
@@ -118,7 +122,7 @@ class WalletService {
 
   // ── Submit pending deposit (after payment SDK success callback) ──────────
 
-  /// Records a successful payment as a pending deposit awaiting admin review.
+  /// Records a successful payment as a pending deposit awaiting backend verification.
   ///
   /// This is called immediately after the Razorpay or mock gateway
   /// success callback. It does NOT credit the wallet.
@@ -138,6 +142,46 @@ class WalletService {
         razorpaySignature: razorpaySignature,
         gateway: gateway == PaymentGateway.mock ? 'mock' : 'razorpay',
       );
+
+  // ── Backend payment verification ─────────────────────────────────────────
+
+  /// Sends the deposit to the backend for payment verification and wallet credit.
+  ///
+  /// Flow:
+  ///   1. Gets the current user's Firebase ID token.
+  ///   2. POSTs {deposit_id} to [AppConfig.backendBaseUrl]/api/wallet/deposits/verify.
+  ///   3. Backend verifies signature (Razorpay: HMAC-SHA256 / Mock: skipped),
+  ///      then atomically credits the wallet via Firebase Admin SDK.
+  ///
+  /// Throws an [Exception] with a user-readable message on failure.
+  /// The deposit is left in 'awaiting_review' if verification fails.
+  static Future<void> verifyDeposit(String depositId) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw Exception('User is not authenticated.');
+
+    final idToken = await user.getIdToken();
+    final uri = Uri.parse('${AppConfig.backendBaseUrl}/api/wallet/deposits/verify');
+
+    final response = await http.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $idToken',
+      },
+      body: jsonEncode({'deposit_id': depositId}),
+    );
+
+    if (response.statusCode == 200) return; // Success or idempotent already_approved.
+
+    // Parse backend error detail if available.
+    String message = 'Payment verification failed. Contact support.';
+    try {
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final detail = body['detail'] as String?;
+      if (detail != null && detail.isNotEmpty) message = detail;
+    } catch (_) {}
+    throw Exception(message);
+  }
 
   // ── Wallet purchase ──────────────────────────────────────────────────────
 
