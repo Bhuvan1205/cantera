@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # ── Bootstrap: importing firebase triggers _initialize_firebase() on startup ──
 import config.firebase  # noqa: F401
+from config.logging import setup_logging
+
+setup_logging()
 
 from config.settings import ALLOWED_ORIGINS
 from auth.dependencies import get_current_admin

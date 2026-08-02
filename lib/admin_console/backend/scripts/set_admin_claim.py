@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from firebase_admin import auth
 from config.firebase import db
+from config.logging import log_audit
 
 
 def resolve_uid(email: str | None, uid: str | None) -> str:
@@ -68,6 +69,12 @@ def grant_admin(uid: str) -> None:
     if user_ref.get().exists:
         user_ref.update({"isAdmin": True})
 
+    log_audit(
+        action="ADMIN_CLAIM_GRANTED",
+        actor_uid="CLI_OPERATOR",
+        target=f"Users/{uid}",
+        details={"email": user.email, "custom_claims": updated_claims},
+    )
     print(f"[SUCCESS] Admin custom claim GRANTED for user {uid} ({user.email}).")
     print(f"  Custom Claims: {updated_claims}")
     print("  Note: If the user is currently logged in, they must refresh their token to apply claims.")
@@ -87,6 +94,12 @@ def revoke_admin(uid: str) -> None:
     if user_ref.get().exists:
         user_ref.update({"isAdmin": False})
 
+    log_audit(
+        action="ADMIN_CLAIM_REVOKED",
+        actor_uid="CLI_OPERATOR",
+        target=f"Users/{uid}",
+        details={"email": user.email, "custom_claims": updated_claims},
+    )
     print(f"[SUCCESS] Admin custom claim REVOKED for user {uid} ({user.email}).")
     print(f"  Custom Claims: {updated_claims}")
     print("  Active refresh tokens have been revoked.")

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from auth.dependencies import get_current_admin
+from config.logging import log_audit
 from .schemas import MenuItem, CreateMenuItemRequest, UpdateMenuItemRequest
 from .service import InventoryService
 
@@ -42,7 +43,14 @@ def create_item(
     payload: CreateMenuItemRequest,
     _admin: dict = Depends(get_current_admin),
 ) -> MenuItem:
-    return InventoryService.create_item(payload)
+    item = InventoryService.create_item(payload)
+    log_audit(
+        action="INVENTORY_ITEM_CREATE",
+        actor_uid=_admin.get("uid", "unknown"),
+        target=f"Menu/{item.id}",
+        details={"name": item.name, "price": item.price, "stock": item.stock, "category": item.category},
+    )
+    return item
 
 
 @router.patch(
@@ -59,4 +67,11 @@ def update_item(
     payload: UpdateMenuItemRequest,
     _admin: dict = Depends(get_current_admin),
 ) -> MenuItem:
-    return InventoryService.update_item(menu_id, payload)
+    item = InventoryService.update_item(menu_id, payload)
+    log_audit(
+        action="INVENTORY_ITEM_UPDATE",
+        actor_uid=_admin.get("uid", "unknown"),
+        target=f"Menu/{menu_id}",
+        details={"updated_fields": payload.model_dump(exclude_unset=True), "new_stock": item.stock, "new_price": item.price},
+    )
+    return item

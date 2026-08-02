@@ -2,6 +2,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 
 from auth.dependencies import get_current_admin, get_current_user
+from config.logging import log_audit
 from .schemas import (
     PendingDepositItem,
     RefundRequestItem,
@@ -41,10 +42,17 @@ def verify_deposit(
     payload: VerifyDepositRequest,
     user: dict = Depends(get_current_user),
 ) -> dict:
-    return WalletService.verify_and_approve_deposit(
+    res = WalletService.verify_and_approve_deposit(
         deposit_id=payload.deposit_id,
         user_uid=user["uid"],
     )
+    log_audit(
+        action="WALLET_DEPOSIT_VERIFIED",
+        actor_uid=user["uid"],
+        target=f"pending_deposits/{payload.deposit_id}",
+        details={"status": res.get("status"), "credited_amount": res.get("credited_amount")},
+    )
+    return res
 
 
 @router.get(
@@ -87,11 +95,18 @@ def update_refund_status(
     payload: UpdateRefundStatusRequest,
     admin: dict = Depends(get_current_admin),
 ) -> RefundRequestItem:
-    return WalletService.update_refund_status(
+    res = WalletService.update_refund_status(
         refund_id=refund_id,
         payload=payload,
         admin_uid=admin["uid"],
     )
+    log_audit(
+        action=f"WALLET_REFUND_{payload.status.upper()}",
+        actor_uid=admin.get("uid", "unknown"),
+        target=f"refund_requests/{refund_id}",
+        details={"status": payload.status, "reason": payload.reason},
+    )
+    return res
 
 
 @router.get(
