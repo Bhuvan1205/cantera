@@ -53,3 +53,5 @@ lib/admin_console/*.json
 .venv/
 __pycache__/
 
+node_modules/
+
