@@ -1,19 +1,37 @@
 # Deployment Runbook
 
-Step-by-step instructions for deploying backend, Firestore security rules, Cloud Functions, and Flutter clients to production.
+Step-by-step instructions for deploying backend, Firestore security rules, Cloud Functions, and Flutter clients to staging and production.
 
 ---
 
-## 1. Prerequisites
-- Google Cloud SDK (`gcloud`) authenticated to project `canteen-app-e1c8d`.
-- Firebase CLI (`firebase`) logged in.
-- Docker engine active for container builds.
+## 1. Project Lifecycle & CI/CD Pipeline
+
+The project is currently in **Feature Development Mode (EEL-001)**.
+- **Continuous Integration (`ci.yml`):** Automatically executes on all PRs and pushes to `main` and `feature/**` branches. Validates backend `pytest`, `flutter analyze`, `flutter test`, and Firestore security rules. Does **not** deploy or interact with Google Cloud.
+- **Continuous Deployment (`cd.yml`):** Automated deployment on push is **disabled** during development mode. CD is triggered exclusively via:
+  1. Manual execution via GitHub Actions (`workflow_dispatch`) with environment selection (`staging` or `production`).
+  2. Release tag creation (`v*`).
 
 ---
 
-## 2. Backend Deployment (Cloud Run)
+## 2. Automated Deployment via GitHub Actions (CD Workflow)
 
-### Build & Deploy Command
+### Triggering Manual Staging/Production Deployment
+1. Navigate to repository **Actions** tab on GitHub.
+2. Select **Continuous Deployment (CD) - Cloud Run**.
+3. Click **Run workflow**, choose branch and target environment (`staging` or `production`).
+
+### Triggering via Release Tag
+```bash
+git tag -a v2.1.0 -m "Release v2.1.0: feature release"
+git push origin v2.1.0
+```
+
+---
+
+## 3. Manual CLI Deployment (Direct Cloud SDK)
+
+### Backend Deployment (Cloud Run)
 ```bash
 # Set GCP Project
 gcloud config set project canteen-app-e1c8d
@@ -40,7 +58,7 @@ curl -f https://cantora-backend-<hash>-el.a.run.app/health
 
 ---
 
-## 3. Firestore Security Rules Deployment
+## 4. Firestore Security Rules Deployment
 
 ```bash
 # Validate rules against local emulator first
@@ -52,7 +70,7 @@ firebase deploy --only firestore:rules
 
 ---
 
-## 4. Cloud Functions Deployment
+## 5. Cloud Functions Deployment
 
 ```bash
 firebase deploy --only functions
@@ -60,7 +78,7 @@ firebase deploy --only functions
 
 ---
 
-## 5. Flutter Web / Mobile Builds
+## 6. Flutter Web / Mobile Builds
 
 ### Web (Counter Terminals)
 ```bash
@@ -78,3 +96,4 @@ flutter build appbundle --release
 ## Cross-References
 - [Environments](file:///docs/operations/ENVIRONMENTS.md)
 - [Incident Response](file:///docs/operations/INCIDENT_RESPONSE.md)
+- [Testing Standards](file:///docs/engineering/TESTING_STANDARDS.md)

@@ -66,6 +66,21 @@ flutter analyze
 
 ---
 
+## 4. Automated Continuous Integration (CI Pipeline)
+
+The repository runs an automated CI pipeline on all Pull Requests and pushes to `main` and `feature/**` via GitHub Actions (`.github/workflows/ci.yml`).
+
+### Automated Quality Gates
+1. **Backend Tests:** Executes full `pytest` suite on Python 3.11.
+2. **Flutter Static Analysis:** Executes `flutter analyze` (must have 0 errors, 0 warnings).
+3. **Flutter Tests:** Executes `flutter test`.
+4. **Security Rules Tests:** Boots the Firebase Emulator and executes the 72+ Jest assertions.
+
+All 4 quality gates must pass before a PR can be merged into `main`.
+
+---
+
 ## Cross-References
 - [Feature Development Guide](file:///docs/engineering/FEATURE_DEVELOPMENT_GUIDE.md)
 - [Code Review Checklist](file:///docs/engineering/CODE_REVIEW_CHECKLIST.md)
+- [Deployment Runbook](file:///docs/operations/DEPLOYMENT_RUNBOOK.md)

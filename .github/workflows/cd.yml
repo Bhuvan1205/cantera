@@ -1,16 +1,19 @@
-name: Backend CI/CD Pipeline
+name: Continuous Deployment (CD) - Cloud Run
 
 on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
   push:
-    branches: [main]
-    paths:
-      - 'lib/admin_console/backend/**'
-      - 'infra/**'
-      - '.github/workflows/deploy_backend.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'lib/admin_console/backend/**'
+    tags:
+      - 'v*'
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID || 'canteen-app-e1c8d' }}
@@ -20,14 +23,14 @@ env:
   WIF_SERVICE_ACCOUNT: ${{ secrets.GCP_WIF_SA }}
 
 jobs:
-  test:
-    name: Run Unit Tests
+  validate-pre-deploy:
+    name: Pre-Deployment Validation
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -35,19 +38,15 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          cd lib/admin_console/backend
-          pip install -r requirements.txt
+          pip install -r lib/admin_console/backend/requirements.txt
           pip install pytest pytest-asyncio httpx
 
-      - name: Run Pytest
-        run: |
-          cd lib/admin_console/backend
-          pytest tests/ -v
+      - name: Run Pytest Suite
+        run: pytest lib/admin_console/backend/tests/ -v
 
-  deploy:
+  deploy-cloud-run:
     name: Build & Deploy to Cloud Run
-    needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: validate-pre-deploy
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -79,13 +78,14 @@ jobs:
       - name: Deploy to Cloud Run
         run: |
           IMAGE_TAG="asia-south1-docker.pkg.dev/${{ env.PROJECT_ID }}/canteen-repo/${{ env.SERVICE_NAME }}:${{ github.sha }}"
+          DEPLOY_ENV="${{ github.event.inputs.environment || 'production' }}"
           gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image "$IMAGE_TAG" \
             --region ${{ env.REGION }} \
             --platform managed \
             --service-account canteen-api-sa@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
             --set-secrets "RAZORPAY_KEY_SECRET=projects/${{ env.PROJECT_ID }}/secrets/RAZORPAY_KEY_SECRET:latest" \
-            --set-env-vars "GCP_PROJECT_ID=${{ env.PROJECT_ID }},APP_ENV=production,RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}" \
+            --set-env-vars "GCP_PROJECT_ID=${{ env.PROJECT_ID }},APP_ENV=$DEPLOY_ENV,RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}" \
             --allow-unauthenticated \
             --timeout 300 \
             --concurrency 80 \
