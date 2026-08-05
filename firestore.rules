@@ -1,229 +1,146 @@
 rules_version = '2';
+
+//
+// ADR-001 Backend-First Security Rules
+// Phase 3 — Firestore Security Rules Lockdown
+//
+// Core principle (ADR-001):
+//   All business writes must execute ONLY through the FastAPI backend
+//   using the Firebase Admin SDK. The Flutter client is a read-only
+//   presentation layer with respect to Firestore mutations.
+//
+// Write access matrix:
+//   Collection              | Flutter client | FastAPI (Admin SDK)
+//   ----------------------- | -------------- | -------------------
+//   Users                   | READ only*     | WRITE
+//   Menu                    | READ only      | WRITE
+//   Orders                  | READ own**     | WRITE
+//   Orders/tokens           | READ own**     | WRITE
+//   queues                  | READ only      | WRITE
+//   wallets                 | READ own       | WRITE
+//   wallet_transactions     | READ own       | WRITE
+//   pending_deposits        | READ own       | WRITE
+//   refund_requests         | READ own       | WRITE
+//
+// * Users/read: own profile or admin
+// ** Orders/read: owner or staff/admin
+//
+// The Firebase Admin SDK bypasses these rules entirely.
+// Reads remain permitted so the existing StreamBuilder/FutureBuilder
+// UI widgets continue to function without change.
+//
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions
+    // ── Helper functions ──────────────────────────────────────────────────────
+
     function signedIn() {
       return request.auth != null;
     }
 
     function isAdmin() {
-      return signedIn() && 
-        exists(/databases/$(database)/documents/Users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/Users/$(request.auth.uid)).data.isAdmin == true;
+      return signedIn() && (
+        request.auth.token.role == 'admin' ||
+        request.auth.token.admin == true
+      );
     }
 
-    function isValidQueueCreate(itemName) {
-      return signedIn() &&
-        request.resource.data.item_name == itemName &&
-        request.resource.data.avg_prep_time_mins is number &&
-        request.resource.data.queue.size() == 1 &&
-        request.resource.data.queue[0].order_id is string &&
-        exists(/databases/$(database)/documents/Orders/$(request.resource.data.queue[0].order_id)) &&
-        get(/databases/$(database)/documents/Orders/$(request.resource.data.queue[0].order_id)).data.userId == request.auth.uid &&
-        request.resource.data.queue[0].prep_units > 0 &&
-        request.resource.data.queue[0].prep_units <= 20 &&
-        request.resource.data.queue[0].status == 'waiting' &&
-        request.resource.data.total_prep_units_ahead == request.resource.data.queue[0].prep_units;
+    function isStaff() {
+      return signedIn() && (
+        request.auth.token.role == 'staff' ||
+        request.auth.token.staff == true ||
+        isAdmin()
+      );
     }
 
-    function isValidQueueUpdate() {
-      let oldQ = resource.data.queue;
-      let newQ = request.resource.data.queue;
-      let addedItems = newQ.removeAll(oldQ);
-      let newEntry = addedItems[0];
-      return signedIn() &&
-        request.resource.data.item_name == resource.data.item_name &&
-        request.resource.data.avg_prep_time_mins == resource.data.avg_prep_time_mins &&
-        newQ.size() == oldQ.size() + 1 &&
-        addedItems.size() == 1 &&
-        newEntry.order_id is string &&
-        exists(/databases/$(database)/documents/Orders/$(newEntry.order_id)) &&
-        get(/databases/$(database)/documents/Orders/$(newEntry.order_id)).data.userId == request.auth.uid &&
-        newEntry.prep_units > 0 &&
-        newEntry.prep_units <= 20 &&
-        newEntry.status == 'waiting' &&
-        request.resource.data.total_prep_units_ahead == resource.data.total_prep_units_ahead + newEntry.prep_units;
-    }
-
-    // Users rules
+    // ── Users ─────────────────────────────────────────────────────────────────
+    // Reads:  own profile or admin
+    // Writes: BACKEND ONLY (Admin SDK bypasses rules)
     match /Users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
-      // Users can register their own profile, but cannot self-promote to isAdmin
-      allow create: if signedIn() && request.auth.uid == userId && 
-        request.resource.data.isAdmin == false;
-      // Users can update their profile, but cannot modify their isAdmin status
-      allow update: if signedIn() && request.auth.uid == userId && 
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'name', 'phone', 'email', 'profilePhoto', 'pickupPin', 'lastPinChange'
-        ]);
-      allow delete: if false;
+      allow write: if false;  // ADR-001: all writes via FastAPI backend
     }
 
-    // Menu rules
+    // ── Menu ──────────────────────────────────────────────────────────────────
+    // Reads:  any authenticated user (required for menu display StreamBuilder)
+    // Writes: BACKEND ONLY
     match /Menu/{menuId} {
       allow read: if signedIn();
-      allow create: if isAdmin();
-      allow update: if isAdmin() || (
-        signedIn() &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock']) &&
-        request.resource.data.stock < resource.data.stock
-      );
-      allow delete: if false;
+      allow write: if false;  // ADR-001: all writes via FastAPI backend
     }
 
-    // Orders rules
+    // ── Orders ────────────────────────────────────────────────────────────────
+    // Reads:  order owner or staff/admin (required for order history + detail)
+    // Writes: BACKEND ONLY
     match /Orders/{orderId} {
-      allow read: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      
-      // Ensure only valid initial orders can be placed
-      allow create: if signedIn() && 
-        request.resource.data.userId == request.auth.uid &&
-        request.resource.data.keys().hasOnly(['userId', 'items', 'total', 'status', 'overall_status', 'tokenNumber', 'timestamp', 'categoryTokens', 'order_id', 'paymentMethod']) &&
-        request.resource.data.status == 'placed' &&
-        request.resource.data.overall_status == 'active' &&
-        (!('paymentMethod' in request.resource.data) ||
-         request.resource.data.paymentMethod != 'wallet' ||
-         (
-           exists(/databases/$(database)/documents/wallet_transactions/$(orderId)) &&
-           get(/databases/$(database)/documents/wallet_transactions/$(orderId)).data.amount == request.resource.data.total &&
-           get(/databases/$(database)/documents/wallet_transactions/$(orderId)).data.status == 'success'
-         )
-        );
-        
-      allow update: if (isAdmin() && request.resource.data.userId == resource.data.userId) || (
-        signedIn() &&
-        resource.data.userId == request.auth.uid &&
-        resource.data.status == 'placed' &&
-        request.resource.data.status == 'refund_pending' &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+      allow read: if signedIn() && (
+        resource.data.userId == request.auth.uid || isStaff()
       );
-      allow delete: if false;
+      allow write: if false;  // ADR-001: all writes via FastAPI backend
 
-      // Tokens subcollection rules
+      // ── Tokens subcollection ───────────────────────────────────────────────
+      // Reads:  order owner or staff (required for QR screen StreamBuilder)
+      // Writes: BACKEND ONLY
       match /tokens/{tokenId} {
         allow read: if signedIn() && (
-          get(/databases/$(database)/documents/Orders/$(orderId)).data.userId == request.auth.uid || isAdmin()
+          get(/databases/$(database)/documents/Orders/$(orderId)).data.userId == request.auth.uid
+          || isStaff()
         );
-        
-        // Tokens must start in 'placed' status
-        allow create: if signedIn() && 
-          request.resource.data.keys().hasOnly(['token_id', 'counter', 'items', 'token_status', 'token_number', 'qr_valid', 'qr_code_data', 'otp', 'otp_verified', 'queue_name', 'queue_position', 'prep_units_in_queue', 'prep_start_time', 'prep_end_time', 'prep_duration_mins']) &&
-          request.resource.data.token_status == 'placed' &&
-          request.resource.data.qr_valid == true &&
-          ((request.resource.data.counter == 'mess' && request.resource.data.otp_verified == false) ||
-           (request.resource.data.counter != 'mess' && request.resource.data.otp_verified == null));
-
-        allow update: if isAdmin() && (
-          // Enforce valid token status transitions
-          (
-            resource.data.token_status == request.resource.data.token_status || (
-              (resource.data.token_status == 'placed' && request.resource.data.token_status == 'preparing') ||
-              (resource.data.token_status == 'preparing' && request.resource.data.token_status == 'delivered') ||
-              (resource.data.token_status == 'placed' && request.resource.data.token_status == 'delivered' && resource.data.counter != 'mess')
-            )
-          ) &&
-          // Freeze immutable metadata
-          request.resource.data.token_id == resource.data.token_id &&
-          request.resource.data.counter == resource.data.counter &&
-          request.resource.data.token_number == resource.data.token_number &&
-          request.resource.data.otp == resource.data.otp
-        );
-        allow delete: if false;
+        allow write: if false;  // ADR-001: all writes via FastAPI backend
       }
     }
 
-    // Queues rules
+    // ── Queues ────────────────────────────────────────────────────────────────
+    // Reads:  any authenticated user (required for queue display StreamBuilder)
+    // Writes: BACKEND ONLY
     match /queues/{itemName} {
       allow read: if signedIn();
-      allow create: if isAdmin() || isValidQueueCreate(itemName);
-      allow update: if isAdmin() || isValidQueueUpdate();
+      allow write: if false;  // ADR-001: all writes via FastAPI backend
     }
 
-    // ── Wallets rules ────────────────────────────────────────────────────────
+    // ── Wallets ───────────────────────────────────────────────────────────────
+    // Reads:  own wallet or admin
+    // Writes: BACKEND ONLY
     match /wallets/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
-      // Users can only initialize their own wallet with 0 balance.
-      // The backend sets the balance upon first deposit approval via Admin SDK.
-      allow create: if signedIn() && request.auth.uid == userId &&
-        request.resource.data.balance == 0.0 &&
-        request.resource.data.total_added == 0.0 &&
-        request.resource.data.total_spent == 0.0;
-      // Allow updates if admin, or if owner is performing a debit (purchase) only.
-      // Wallet credits (deposits) must go through the backend approval flow only.
-      allow update: if isAdmin() || (
-        signedIn() && request.auth.uid == userId &&
-        (
-          // Debit only (purchase): balance decreases, total_spent increases accordingly
-          request.resource.data.balance < resource.data.balance &&
-          request.resource.data.balance >= 0.0 &&
-          request.resource.data.total_spent == resource.data.total_spent + (resource.data.balance - request.resource.data.balance) &&
-          request.resource.data.total_added == resource.data.total_added &&
-          request.resource.data.last_order_id is string
-        )
-      );
-      allow delete: if false;
+      allow write: if false;  // ADR-001: all writes via FastAPI backend
     }
 
-    // ── Wallet Transactions rules ────────────────────────────────────────────
+    // ── Wallet Transactions ────────────────────────────────────────────────────
+    // Reads:  transaction owner or admin
+    // Writes: BACKEND ONLY
     match /wallet_transactions/{transactionId} {
-      allow read: if signedIn() && (resource.data.user_uid == request.auth.uid || isAdmin());
-      // Users can only create purchase transactions. Deposit (credit) transactions
-      // must be created by the backend only via admin approval flow.
-      allow create: if isAdmin() || (
-        signedIn() &&
-        request.resource.data.user_uid == request.auth.uid &&
-        request.resource.data.status == 'success' &&
-        request.resource.data.initiated_by == request.auth.uid &&
-        // Purchase (debit) only
-        request.resource.data.type == 'purchase' &&
-        exists(/databases/$(database)/documents/wallets/$(request.auth.uid)) &&
-        request.resource.data.amount == get(/databases/$(database)/documents/wallets/$(request.auth.uid)).data.balance - request.resource.data.balance_after &&
-        request.resource.data.reference_type == 'order' &&
-        request.resource.data.reference_id == transactionId
+      allow read: if signedIn() && (
+        resource.data.user_uid == request.auth.uid || isAdmin()
       );
-      allow update: if signedIn() &&
-        resource.data.user_uid == request.auth.uid &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['order_id', 'reference_id']) &&
-        (resource.data.order_id == 'pending' || resource.data.order_id == null);
-      allow delete: if false;
+      allow write: if false;  // ADR-001: all writes via FastAPI backend
     }
 
-    // ── Pending Deposits rules ───────────────────────────────────────────────
+    // ── Pending Deposits ──────────────────────────────────────────────────────
+    // Reads:  deposit owner or admin
+    // Writes: BACKEND ONLY (Razorpay webhook → FastAPI → Admin SDK)
     match /pending_deposits/{depositId} {
-      allow read: if signedIn() && (resource.data.user_uid == request.auth.uid || isAdmin());
-      allow create: if signedIn() &&
-        request.resource.data.user_uid == request.auth.uid &&
-        request.resource.data.amount >= 20.0 &&
-        request.resource.data.amount <= 500.0 &&
-        request.resource.data.status == 'awaiting_review' &&
-        request.resource.data.keys().hasAll(['user_uid', 'amount', 'razorpay_payment_id', 'gateway', 'status', 'created_at']);
-      // Only the backend (via Admin SDK) or an admin may update a deposit.
-      // The self-approval path has been removed: deposit approval is backend-only.
-      allow update: if isAdmin();
-      allow delete: if false;
+      allow read: if signedIn() && (
+        resource.data.user_uid == request.auth.uid || isAdmin()
+      );
+      allow write: if false;  // ADR-001: all writes via FastAPI backend
     }
 
-    // ── Refund Requests rules ────────────────────────────────────────────────
+    // ── Refund Requests ───────────────────────────────────────────────────────
+    // Reads:  requester or admin
+    // Writes: BACKEND ONLY (POST /api/wallet/refunds/request → Admin SDK)
     match /refund_requests/{requestId} {
-      allow read: if signedIn() && (resource.data.user_uid == request.auth.uid || isAdmin());
-      allow create: if signedIn() &&
-        request.resource.data.user_uid == request.auth.uid &&
-        (request.resource.data.status == 'refund_requested' || request.resource.data.status == 'pending') &&
-        exists(/databases/$(database)/documents/Orders/$(request.resource.data.order_id)) &&
-        get(/databases/$(database)/documents/Orders/$(request.resource.data.order_id)).data.userId == request.auth.uid &&
-        get(/databases/$(database)/documents/Orders/$(request.resource.data.order_id)).data.status == 'placed';
-      allow update: if isAdmin() && (
-        // Verify only valid progressive state transitions
-        (resource.data.status == 'refund_requested' && request.resource.data.status == 'refund_under_review') ||
-        (resource.data.status == 'refund_under_review' && request.resource.data.status == 'approved') ||
-        (resource.data.status == 'approved' && request.resource.data.status == 'credited') ||
-        (resource.data.status == 'refund_under_review' && request.resource.data.status == 'credited') ||
-        (resource.data.status == 'refund_under_review' && request.resource.data.status == 'rejected') ||
-        // allow jumping straight from requested/pending to resolved states for convenience
-        ((resource.data.status == 'refund_requested' || resource.data.status == 'pending') && (request.resource.data.status == 'credited' || request.resource.data.status == 'rejected' || request.resource.data.status == 'refund_under_review'))
+      allow read: if signedIn() && (
+        resource.data.user_uid == request.auth.uid || isAdmin()
       );
-      allow delete: if false;
+      allow write: if false;  // ADR-001: all writes via FastAPI backend
+    }
+
+    // ── Catch-all: deny everything else ──────────────────────────────────────
+    // Any collection not explicitly listed above is denied to all clients.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

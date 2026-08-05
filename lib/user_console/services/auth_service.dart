@@ -1,5 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../core/services/api_client.dart';
 
 class AuthService {
   const AuthService._();
@@ -12,37 +12,36 @@ class AuthService {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return false;
 
-    final userDoc = await FirebaseFirestore.instance
-        .collection('Users')
-        .doc(user.uid)
-        .get();
-
-    if (!userDoc.exists) return false;
-
-    final data = userDoc.data();
-    return (data?['isAdmin'] as bool?) ?? false;
+    final idTokenResult = await user.getIdTokenResult();
+    final customRole = idTokenResult.claims?['role'] as String?;
+    final isAdminClaim = idTokenResult.claims?['admin'] as bool?;
+    if (customRole == 'admin' || isAdminClaim == true) {
+      return true;
+    }
+    return false;
   }
 
-  /// Returns the user's current pickup PIN and the date it was last changed.
-  /// Returns null for [pin] if none is set yet.
+  /// Returns the user's current pickup PIN status and the date it was last changed.
   static Future<({String? pin, DateTime? lastChanged})> getPickupPinInfo() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return (pin: null, lastChanged: null);
 
-    final doc = await FirebaseFirestore.instance
-        .collection('Users')
-        .doc(user.uid)
-        .get();
-    final data = doc.data();
-    final pin = data?['pickupPin'] as String?;
-    final lastChangedTs = data?['lastPinChange'] as Timestamp?;
-    return (pin: pin, lastChanged: lastChangedTs?.toDate());
+    try {
+      final res = await ApiClient.instance.get('/api/users/me/pin') as Map<String, dynamic>;
+      final lastChangedStr = res['last_pin_change'] as String?;
+      DateTime? lastChanged;
+      if (lastChangedStr != null) {
+        lastChanged = DateTime.tryParse(lastChangedStr);
+      }
+      final hasPin = res['has_pin'] as bool? ?? false;
+      return (pin: hasPin ? '****' : null, lastChanged: lastChanged);
+    } catch (_) {
+      return (pin: null, lastChanged: null);
+    }
   }
 
-  /// Re-authenticates the user, checks the 30-day cooldown, then updates the
-  /// pickup PIN in Firestore.
-  ///
-  /// Throws a descriptive [Exception] on failure.
+  /// Re-authenticates the user, then updates the pickup PIN via FastAPI backend.
+  /// Backend enforces 4-digit validation and 30-day cooldown.
   static Future<void> changePickupPin({
     required String password,
     required String newPin,
@@ -72,28 +71,14 @@ class AuthService {
       throw Exception('Authentication failed: ${e.message}');
     }
 
-    // ── Step 2: Check 30-day cooldown ───────────────────────────────────────
-    final userRef = FirebaseFirestore.instance.collection('Users').doc(user.uid);
-    final doc = await userRef.get();
-    final lastChangedTs = doc.data()?['lastPinChange'] as Timestamp?;
-
-    if (lastChangedTs != null) {
-      final lastChanged = lastChangedTs.toDate();
-      final diff = DateTime.now().difference(lastChanged).inDays;
-      if (diff < 30) {
-        final nextAllowed = lastChanged.add(const Duration(days: 30));
-        final formatted =
-            '${nextAllowed.day}/${nextAllowed.month}/${nextAllowed.year}';
-        throw Exception(
-          'PIN can only be changed once every 30 days.\nYou can change it again on $formatted.',
-        );
-      }
+    // ── Step 2: Update PIN via Backend (atomic cooldown check) ───────────────
+    try {
+      await ApiClient.instance.post('/api/users/change-pin', body: {
+        'new_pin': newPin,
+      });
+    } on ApiException catch (e) {
+      throw Exception(e.message);
     }
-
-    // ── Step 3: Update PIN ───────────────────────────────────────────────────
-    await userRef.update({
-      'pickupPin': newPin,
-      'lastPinChange': FieldValue.serverTimestamp(),
-    });
   }
 }
+

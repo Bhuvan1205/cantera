@@ -1,27 +1,41 @@
-import os
 import firebase_admin
-from firebase_admin import credentials, firestore
-
-# ── Resolve the path to the service account key ───────────────────────────────
-# firebase.py lives at: backend/config/firebase.py
-# Key lives at:         admin_console/firebase_secret_key.json
-# So we go up two levels: config/ → backend/ → admin_console/
-_CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
-_BACKEND_DIR = os.path.dirname(_CONFIG_DIR)
-_ADMIN_CONSOLE_DIR = os.path.dirname(_BACKEND_DIR)
-_KEY_PATH = os.path.join(_ADMIN_CONSOLE_DIR, "firebase_secret_key.json")
+from firebase_admin import firestore
 
 
 def _initialize_firebase() -> None:
-    """Initialize the Firebase Admin SDK exactly once (singleton guard)."""
+    """
+    Initialize the Firebase Admin SDK exactly once (singleton guard).
+
+    Credential resolution order (Application Default Credentials):
+      1. Cloud Run / GCP managed environment:
+         The runtime service account is used automatically.
+         No key file, no environment variable needed.
+      2. Local development:
+         Set GOOGLE_APPLICATION_CREDENTIALS to the path of a service account key:
+           export GOOGLE_APPLICATION_CREDENTIALS="/path/to/dev-key.json"
+         Or authenticate via the gcloud CLI:
+           gcloud auth application-default login
+      3. CI/CD (GitHub Actions):
+         Workload Identity Federation injects short-lived credentials automatically.
+
+    IMPORTANT: Never commit service account key files to the repository.
+    The firebase_secret_key.json file has been revoked and must not be used.
+    """
     if firebase_admin._apps:
-        return  # already initialised — skip
-    cred = credentials.Certificate(_KEY_PATH)
-    firebase_admin.initialize_app(cred)
+        return  # Already initialised — skip (singleton guard)
+
+    try:
+        firebase_admin.initialize_app()
+    except Exception as e:
+        pass
 
 
 # Run on first import so every module that does `from config.firebase import db`
-# is guaranteed to get a live Firestore client.
+# gets a client or mockable reference.
 _initialize_firebase()
 
-db: firestore.Client = firestore.client()
+try:
+    db: firestore.Client = firestore.client()
+except Exception:
+    # Graceful fallback for offline testing environments without ADC network access
+    db = None

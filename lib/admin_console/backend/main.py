@@ -22,6 +22,9 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+from utils.idempotency import IdempotencyMiddleware
+from utils.app_check import AppCheckMonitoringMiddleware
+
 # ── CORS ──────────────────────────────────────────────────────────────────────
 # Allows the Streamlit frontend (localhost:8501) and any configured origin to call the API.
 app.add_middleware(
@@ -31,6 +34,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Idempotency ───────────────────────────────────────────────────────────────
+# Enforces safe retries on mutating POST/PUT/PATCH endpoints using Idempotency-Key
+app.add_middleware(IdempotencyMiddleware)
+
+# ── App Check (Monitoring & Telemetry) ────────────────────────────────────────
+# Logs App Check validation results without blocking requests during phased rollout
+app.add_middleware(AppCheckMonitoringMiddleware)
+
+
 
 
 # ── System routes ─────────────────────────────────────────────────────────────

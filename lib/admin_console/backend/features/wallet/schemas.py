@@ -109,3 +109,48 @@ class VerifyDepositRequest(BaseModel):
     no financial data is trusted from the client body.
     """
     deposit_id: str = Field(..., description="Firestore document ID from pending_deposits collection")
+
+
+class CreateDepositOrderRequest(BaseModel):
+    """Payload for POST /api/wallet/orders/deposit (top-up)"""
+    amount: float = Field(..., ge=20.0, le=500.0, description="Amount to deposit into wallet (₹20 - ₹500)")
+
+
+class CartItemRequest(BaseModel):
+    """Single item in cart submitted for price resolution and order creation."""
+    menu_item_id: str = Field(..., description="Firestore Menu item ID")
+    quantity: int = Field(..., ge=1, le=50, description="Quantity to purchase")
+
+
+class CreateCartOrderRequest(BaseModel):
+    """
+    Payload for POST /api/wallet/orders/checkout.
+    Client submits ONLY item IDs and quantities — prices are computed exclusively
+    on the backend from the Firestore Menu collection.
+    """
+    items: list[CartItemRequest] = Field(..., min_length=1, max_length=50)
+
+
+class CreateOrderResponse(BaseModel):
+    """Server-side generated Razorpay order details for the Flutter client SDK."""
+    razorpay_order_id: str
+    amount_paise: int
+    amount_rupees: float
+    currency: str = "INR"
+    key_id: str
+    deposit_id: Optional[str] = None
+
+
+class CreateRefundRequestPayload(BaseModel):
+    """Payload for POST /api/wallet/refunds/request (user-initiated refund)"""
+    order_id: str = Field(..., description="Order ID to request refund for")
+    reason: Optional[str] = Field(None, description="Optional cancellation reason")
+
+
+class CreateAdjustmentRequest(BaseModel):
+    """Payload for POST /api/wallet/adjustments (admin manual balance adjustment)"""
+    user_uid: str = Field(..., description="Target user UID")
+    amount: float = Field(..., description="Adjustment amount (positive for credit, negative for debit)")
+    description: str = Field(..., min_length=3, description="Reason for adjustment")
+
+

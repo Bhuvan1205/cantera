@@ -73,3 +73,24 @@ class UserDetail(BaseModel):
     profile: UserProfile
     wallet: Optional[WalletSummary] = None
     transactions: list[WalletTransaction] = []
+
+
+class CreateUserProfileRequest(BaseModel):
+    """Payload for initializing/updating a user profile from Flutter auth flow."""
+    name: str
+    email: str
+    phone: Optional[str] = None
+    pickup_pin: Optional[str] = None
+
+
+class ChangePinRequest(BaseModel):
+    """Payload for updating delivery pickup PIN."""
+    new_pin: str
+
+
+class PickupPinInfo(BaseModel):
+    """Metadata regarding user's current pickup PIN and cooldown status."""
+    has_pin: bool
+    last_changed: Optional[str] = None
+    can_change_in_days: int = 0
+

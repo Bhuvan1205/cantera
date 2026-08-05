@@ -3,13 +3,13 @@ import '../models/refund_request_model.dart';
 import '../models/wallet_model.dart';
 import '../models/wallet_transaction_model.dart';
 
-/// Abstract interface for all wallet data operations.
+/// Abstract interface for read-only wallet data streaming and fetching.
 ///
 /// Implementations:
-///  - [FirestoreWalletRepository]: production Firestore backend
+///  - [FirestoreWalletRepository]: read-only Firestore stream and query provider
 ///
-/// All balance-modifying operations (approve/reject deposits, purchase,
-/// refund) use Firestore Transactions internally to ensure atomicity.
+/// Under ADR-001 (Backend-First Architecture), all balance mutations, deposits,
+/// and refund status changes execute exclusively in the FastAPI backend on Cloud Run.
 abstract class WalletRepository {
   // ── Wallet reads ───────────────────────────────────────────────────────────
 
@@ -50,72 +50,4 @@ abstract class WalletRepository {
 
   /// Admin: live stream of ALL pending refund requests.
   Stream<List<RefundRequestModel>> watchAllRefundRequests();
-
-  // ── Client staging writes ──────────────────────────────────────────────────
-
-  /// Creates a pending deposit record after a successful payment.
-  /// Returns the Firestore document ID of the new pending deposit.
-  Future<String> createPendingDeposit({
-    required String userId,
-    required double amount,
-    required String razorpayPaymentId,
-    String? razorpayOrderId,
-    String? razorpaySignature,
-    required String gateway,
-  });
-
-  /// Creates a refund request for an order still in 'placed' status.
-  /// Throws if the order is not in 'placed' status.
-  Future<void> createRefundRequest({
-    required String userId,
-    required String orderId,
-    required double amount,
-    String? reason,
-  });
-
-  // ── Wallet purchase (Firestore Transaction, client-callable) ───────────────
-
-  /// Atomically deducts [amount] from the user's wallet and creates a
-  /// `wallet_transactions` record.
-  ///
-  /// Throws if balance is insufficient.
-  Future<void> purchaseWithWallet({
-    required String userId,
-    required double amount,
-    required String orderId,
-    required String description,
-  });
-
-  // ── Admin-only writes (enforced by Firestore Security Rules) ──────────────
-
-  /// Approves a pending deposit: credits the wallet and marks the deposit approved.
-  Future<void> approveDeposit(String depositId, String adminUid);
-
-  /// Rejects a pending deposit without modifying the wallet.
-  Future<void> rejectDeposit(
-    String depositId,
-    String adminUid,
-    String reason,
-  );
-
-  /// Moves a refund request to 'refund_under_review' status.
-  Future<void> reviewRefund(String requestId, String adminUid);
-
-  /// Approves a refund request: moves status to 'approved' and then 'credited' while performing the wallet credit.
-  Future<void> approveRefund(String requestId, String adminUid);
-
-  /// Rejects a refund request: moves status to 'rejected' and reverts order status.
-  Future<void> rejectRefund(
-    String requestId,
-    String adminUid,
-    String reason,
-  );
-
-  /// Creates a manual wallet adjustment (admin use only).
-  Future<void> createAdjustment({
-    required String userId,
-    required double amount,
-    required String description,
-    required String adminUid,
-  });
 }

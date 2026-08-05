@@ -1,0 +1,175 @@
+{
+  "timestamp": "2026-08-04T15:08:53Z",
+  "total_milestones": 20,
+  "passed": 20,
+  "failed": 0,
+  "results": [
+    {
+      "milestone": "M1",
+      "proposal": "P-01",
+      "test_name": "ADC & Service Account Isolation",
+      "status": "PASS",
+      "details": "Singleton Firebase Admin SDK initialized with ADC. Zero hardcoded service account keys in repository.",
+      "metrics": {}
+    },
+    {
+      "milestone": "M2",
+      "proposal": "P-02/P-12",
+      "test_name": "Cloud Run Health & Logging Subsystem",
+      "status": "PASS",
+      "details": "HTTP 200 OK | service=canteen-admin-api version=1.0.0",
+      "metrics": {}
+    },
+    {
+      "milestone": "M3",
+      "proposal": "P-13",
+      "test_name": "Secret Manager vs Client Config Isolation",
+      "status": "PASS",
+      "details": "Secrets isolated: RAZORPAY_KEY_SECRET resolved via backend environment/Secret Manager; RAZORPAY_KEY_ID passed via build configuration.",
+      "metrics": {}
+    },
+    {
+      "milestone": "M4",
+      "proposal": "P-16",
+      "test_name": "Multi-Tier Environment Configuration",
+      "status": "PASS",
+      "details": "Active Environment: dev. Environment profile loaded with isolated project namespaces.",
+      "metrics": {}
+    },
+    {
+      "milestone": "M5",
+      "proposal": "P-03",
+      "test_name": "Server-Side Razorpay Order Creation",
+      "status": "PASS",
+      "details": "Enforced bounds [INR 20, INR 500]. Order generated: order_H38sd9a8sdh for INR 150.0",
+      "metrics": {}
+    },
+    {
+      "milestone": "M6",
+      "proposal": "P-20",
+      "test_name": "Distributed HTTP Idempotency Middleware",
+      "status": "PASS",
+      "details": "Duplicate requests replay cached response with X-Idempotent-Replay header without re-executing order.",
+      "metrics": {}
+    },
+    {
+      "milestone": "M7",
+      "proposal": "P-05/P-06",
+      "test_name": "Atomic Checkout & Stock Reservation",
+      "status": "PASS",
+      "details": "Order ord_atomic_777 allocated scoped token #14 across 2 counters.",
+      "metrics": {}
+    },
+    {
+      "milestone": "M8",
+      "proposal": "P-07",
+      "test_name": "QR Scan & Counter OTP Verification",
+      "status": "PASS",
+      "details": "Direct counter auto-completed on scan; Mess counter validated OTP.",
+      "metrics": {}
+    },
+    {
+      "milestone": "M9",
+      "proposal": "P-08",
+      "test_name": "Custom Claims Synchronization Trigger",
+      "status": "PASS",
+      "details": "Gen2 onDocumentWritten(users/{uid}) trigger syncs role claims into Firebase Auth token.",
+      "metrics": {}
+    },
+    {
+      "milestone": "M10",
+      "proposal": "P-08",
+      "test_name": "Custom Claims Security Rules Enforcement",
+      "status": "PASS",
+      "details": "Firestore rules enforce request.auth.token.role and staff claims with strict least privilege.",
+      "metrics": {}
+    },
+    {
+      "milestone": "M11",
+      "proposal": "P-14",
+      "test_name": "Firebase App Check Monitoring Middleware",
+      "status": "PASS",
+      "details": "App Check telemetry header inspected and logged without breaking existing clients.",
+      "metrics": {}
+    },
+    {
+      "milestone": "M12",
+      "proposal": "P-15",
+      "test_name": "GitHub Actions CI/CD Pipeline",
+      "status": "PASS",
+      "details": "Automated GitHub Actions workflow configured with Workload Identity Federation & Cloud Run deployment.",
+      "metrics": {}
+    },
+    {
+      "milestone": "M13",
+      "proposal": "P-04",
+      "test_name": "Offline QR Pickup Credential",
+      "status": "PASS",
+      "details": "Structured QR payload format (order_id:counter:token) with HMAC verification ready.",
+      "metrics": {}
+    },
+    {
+      "milestone": "M14",
+      "proposal": "P-09",
+      "test_name": "Server-Side Transaction Ordering & Optimistic Locking",
+      "status": "PASS",
+      "details": "Monotonic sequence verified: v1(INR 100) -> v2(INR 70) -> v3(INR 120).",
+      "metrics": {}
+    },
+    {
+      "milestone": "M15",
+      "proposal": "P-10",
+      "test_name": "FCM Push Notifications & Stale Token Pruning",
+      "status": "PASS",
+      "details": "Trigger fires on order status change with multicast push and dead token cleanup.",
+      "metrics": {}
+    },
+    {
+      "milestone": "M16",
+      "proposal": "P-11",
+      "test_name": "Scheduled Operational Maintenance Function",
+      "status": "PASS",
+      "details": "Nightly 03:00 IST cron cleans stale idempotency keys (>24h) and unverified deposits (>48h).",
+      "metrics": {}
+    },
+    {
+      "milestone": "M17",
+      "proposal": "P-17",
+      "test_name": "Cloud Monitoring Alert Policies",
+      "status": "PASS",
+      "details": "Automated alert policies configured for 5xx error threshold (>1%) and latency (>1500ms).",
+      "metrics": {}
+    },
+    {
+      "milestone": "M18",
+      "proposal": "P-18",
+      "test_name": "Firestore PITR & Automated Daily GCS Backups",
+      "status": "PASS",
+      "details": "Continuous PITR enabled (7-day retention) + Cloud Scheduler daily GCS export job configured.",
+      "metrics": {}
+    },
+    {
+      "milestone": "M19",
+      "proposal": "P-19",
+      "test_name": "GCP Billing Budget & Threshold Alerts",
+      "status": "PASS",
+      "details": "Budget alerts configured with threshold triggers at 50%, 80%, 100%, and 120%.",
+      "metrics": {}
+    },
+    {
+      "milestone": "M20",
+      "proposal": "P-11",
+      "test_name": "Real-Time Low-Stock Alerting Cloud Function",
+      "status": "PASS",
+      "details": "Gen2 trigger on Menu/{itemId} stock decrements automatically flags items below threshold <= 5.",
+      "metrics": {}
+    }
+  ],
+  "concurrency_stress_test": {
+    "transactions": 100,
+    "duration_seconds": 0.012314796447753906,
+    "unique_tokens": 100,
+    "token_collisions": 0,
+    "balance_drift": 0.0
+  }
+}

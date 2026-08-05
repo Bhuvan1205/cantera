@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/services/api_client.dart';
 import '../../user_console/services/auth_service.dart';
 import '../../theme/app_colors.dart';
 import '../../user_console/utils/order_status_utils.dart';
@@ -34,7 +35,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
     });
 
     try {
-      await FirebaseFirestore.instance.collection('Orders').doc(orderId).update({
+      await ApiClient.instance.patch('/api/orders/$orderId/status', body: {
         'status': 'delivered',
       });
     } finally {

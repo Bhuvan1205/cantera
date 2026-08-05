@@ -90,4 +90,50 @@ def get_current_user(
             detail="Token is missing the uid claim.",
         )
 
-    return {"uid": uid}
+    return {"uid": uid, "email": decoded.get("email")}
+
+
+def get_current_staff_or_admin(
+    http_creds: HTTPAuthorizationCredentials = Depends(_bearer),
+) -> dict:
+    """
+    FastAPI dependency that allows staff members or administrators.
+    Checks custom claims (admin, staff, role) or Firestore Users/{uid} document.
+    """
+    token = http_creds.credentials
+    decoded = verify_firebase_token(token)
+
+    uid: str | None = decoded.get("uid")
+    if not uid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token is missing the uid claim.",
+        )
+
+    # Fast path: Custom Claims
+    role = decoded.get("role")
+    if decoded.get("admin") is True or decoded.get("staff") is True or role in ("admin", "staff"):
+        return {"uid": uid, **decoded, "user_data": {"role": role or "staff", "staff": True}}
+
+    # Fallback: Firestore check
+    user_ref = db.collection("Users").document(uid)
+    user_snap = user_ref.get()
+
+    if not user_snap.exists:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User record not found in Firestore.",
+        )
+
+    user_data: dict = user_snap.to_dict() or {}
+    user_role = user_data.get("role")
+    is_admin = user_data.get("isAdmin", False) or user_data.get("admin", False)
+
+    if not (is_admin or user_role in ("admin", "staff")):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Staff or administrator privileges required.",
+        )
+
+    return {"uid": uid, **decoded, "user_data": user_data}
+

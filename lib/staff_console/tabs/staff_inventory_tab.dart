@@ -1,8 +1,7 @@
-import 'dart:math' as math;
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/services/api_client.dart';
 import '../../theme/app_colors.dart';
 import '../widgets/staff_inventory_card.dart';
 
@@ -17,16 +16,15 @@ class StaffInventoryTab extends StatelessWidget {
   const StaffInventoryTab({super.key});
 
   Future<void> _updateStock(String itemId, int delta) async {
-    final docRef = FirebaseFirestore.instance.collection('Menu').doc(itemId);
     try {
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final snapshot = await transaction.get(docRef);
-        if (!snapshot.exists) return;
-        final currentStock = ((snapshot.data()?['stock'] ?? 0) as num).toInt();
-        final nextStock = math.max(0, currentStock + delta);
-        transaction.update(docRef, {
-          'stock': nextStock,
-        });
+      // Read current stock from Firestore snapshot then patch via backend
+      final docRef = FirebaseFirestore.instance.collection('Menu').doc(itemId);
+      final snap = await docRef.get();
+      if (!snap.exists) return;
+      final currentStock = ((snap.data()?['stock'] ?? 0) as num).toInt();
+      final nextStock = (currentStock + delta).clamp(0, 9999);
+      await ApiClient.instance.patch('/api/inventory/$itemId', body: {
+        'stock': nextStock,
       });
     } catch (e) {
       debugPrint('Error updating stock for $itemId: $e');
@@ -34,15 +32,20 @@ class StaffInventoryTab extends StatelessWidget {
   }
 
   Future<void> _toggleAvailability(String itemId, bool newValue) async {
-    await FirebaseFirestore.instance.collection('Menu').doc(itemId).update({
-      'isAvailable': newValue,
-    });
+    try {
+      await ApiClient.instance.patch('/api/inventory/$itemId', body: {
+        'is_available': newValue,
+      });
+    } catch (e) {
+      debugPrint('Error toggling availability for $itemId: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance.collection('Menu').snapshots(),
+
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(

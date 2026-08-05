@@ -14,8 +14,12 @@ PORT: int = int(os.getenv("PORT", 8000))
 _raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:8501")
 ALLOWED_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",")]
 
+# ── Environment ───────────────────────────────────────────────────────────────
+ENV: str = os.getenv("ENV", "dev")
+
 # ── Razorpay ──────────────────────────────────────────────────────────────────
-# Required for HMAC-SHA256 payment signature verification.
-# Set RAZORPAY_KEY_SECRET in .env before accepting live Razorpay payments.
-# Mock gateway payments do NOT require this key.
+# RAZORPAY_KEY_SECRET is mounted from Google Cloud Secret Manager in production.
+# RAZORPAY_KEY_ID is public and provided via environment variable.
+RAZORPAY_KEY_ID: str = os.getenv("RAZORPAY_KEY_ID", "rzp_test_PLACEHOLDER")
 RAZORPAY_KEY_SECRET: str = os.getenv("RAZORPAY_KEY_SECRET", "")
+

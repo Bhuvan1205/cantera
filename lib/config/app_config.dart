@@ -1,15 +1,45 @@
 /// Application-wide configuration constants.
 ///
-/// Backend URL configuration:
-///   Development (Android emulator) : `http://10.0.2.2:8000`
-///   Development (physical device)  : `http://<your-machine-LAN-IP>:8000`
-///   Production                     : `https://<your-deployed-backend-url>`
+/// Configuration values are injected at build time using `--dart-define`:
 ///
-/// Update [backendBaseUrl] here and it applies to all backend calls in the app.
+/// Development:
+///   flutter run --dart-define=ENV=dev \
+///               --dart-define=BACKEND_URL=http://10.0.2.2:8000
+///
+/// Staging:
+///   flutter run --dart-define=ENV=staging \
+///               --dart-define=BACKEND_URL=https://canteen-api-staging-xxxx.a.run.app \
+///               --dart-define=RAZORPAY_KEY_ID=rzp_test_STAGING_KEY
+///
+/// Production:
+///   flutter build apk --dart-define=ENV=prod \
+///                     --dart-define=BACKEND_URL=https://api.canteen.yourdomain.com \
+///                     --dart-define=RAZORPAY_KEY_ID=rzp_live_PROD_KEY
 class AppConfig {
   AppConfig._(); // Prevent instantiation
 
-  /// Base URL of the FastAPI backend.
-  /// Change this single constant to switch environments.
-  static const String backendBaseUrl = 'http://10.0.2.2:8000';
+  /// Environment name: 'dev', 'staging', or 'prod'.
+  static const String env = String.fromEnvironment(
+    'ENV',
+    defaultValue: 'dev',
+  );
+
+  /// Base URL of the FastAPI backend deployed on Cloud Run or local.
+  static const String backendBaseUrl = String.fromEnvironment(
+    'BACKEND_URL',
+    defaultValue: 'http://10.0.2.2:8000',
+  );
+
+  /// Public Razorpay Key ID for client-side checkout opening.
+  /// (Secret key is strictly stored server-side in Secret Manager).
+  static const String razorpayKeyId = String.fromEnvironment(
+    'RAZORPAY_KEY_ID',
+    defaultValue: 'rzp_test_PLACEHOLDER',
+  );
+
+  /// Environment helpers
+  static bool get isProduction => env == 'prod';
+  static bool get isStaging => env == 'staging';
+  static bool get isDev => env == 'dev';
 }
+

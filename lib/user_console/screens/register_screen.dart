@@ -1,8 +1,9 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/services/api_client.dart';
 import '../../theme/app_colors.dart';
+
 import '../utils/app_keys.dart';
 import '../widgets/labeled_input_field.dart';
 import 'main_screen.dart';
@@ -50,14 +51,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       await user.updateDisplayName(_nameController.text.trim());
 
-      await FirebaseFirestore.instance.collection('Users').doc(user.uid).set({
-        'uid': user.uid,
+      await ApiClient.instance.post('/api/users/profile', body: {
         'name': _nameController.text.trim(),
         'email': _emailController.text.trim(),
-        'createdAt': FieldValue.serverTimestamp(),
-        'pickupPin': _pinController.text.trim(),
-        'isAdmin': false,
+        'pickup_pin': _pinController.text.trim(),
       });
+
 
       if (!mounted) return;
 

@@ -109,13 +109,16 @@ class WalletRepository:
                 curr_balance = 0.0
                 total_added = 0.0
                 total_spent = 0.0
+                curr_version = 0
 
                 if w_snap.exists:
                     w_dict = w_snap.to_dict() or {}
                     curr_balance = float(w_dict.get("balance", 0.0))
                     total_added = float(w_dict.get("total_added", 0.0))
                     total_spent = float(w_dict.get("total_spent", 0.0))
+                    curr_version = int(w_dict.get("version", 0))
 
+                new_version = curr_version + 1
                 new_balance = curr_balance + amount
                 new_spent = max(0.0, total_spent - amount)
 
@@ -124,6 +127,7 @@ class WalletRepository:
                         "balance": new_balance,
                         "total_added": total_added,
                         "total_spent": new_spent,
+                        "version": new_version,
                         "last_updated": firestore.SERVER_TIMESTAMP,
                     })
                 else:
@@ -131,6 +135,7 @@ class WalletRepository:
                         "balance": new_balance,
                         "total_added": total_added,
                         "total_spent": new_spent,
+                        "version": new_version,
                         "created_at": firestore.SERVER_TIMESTAMP,
                         "last_updated": firestore.SERVER_TIMESTAMP,
                     })
@@ -144,10 +149,13 @@ class WalletRepository:
                     "reference_type": "refund_request",
                     "reference_id": refund_id,
                     "order_id": order_id,
+                    "balance_before": curr_balance,
                     "balance_after": new_balance,
+                    "sequence_number": new_version,
                     "initiated_by": f"admin:{admin_uid}",
                     "timestamp": firestore.SERVER_TIMESTAMP,
                 })
+
 
                 # 4. Update refund request document
                 transaction.update(refund_ref, {
@@ -294,22 +302,28 @@ class WalletRepository:
             w_snap = wallet_ref.get(transaction=transaction)
             curr_balance = 0.0
             curr_total_added = 0.0
+            curr_version = 0
 
             if w_snap.exists:
                 w_data = w_snap.to_dict() or {}
                 curr_balance = float(w_data.get("balance", 0.0))
                 curr_total_added = float(w_data.get("total_added", 0.0))
+                curr_version = int(w_data.get("version", 0))
+                new_version = curr_version + 1
                 transaction.update(wallet_ref, {
                     "balance": curr_balance + amount,
                     "total_added": curr_total_added + amount,
+                    "version": new_version,
                     "last_updated": firestore.SERVER_TIMESTAMP,
                 })
             else:
                 # First deposit — create the wallet document.
+                new_version = 1
                 transaction.set(wallet_ref, {
                     "balance": amount,
                     "total_added": amount,
                     "total_spent": 0.0,
+                    "version": new_version,
                     "created_at": firestore.SERVER_TIMESTAMP,
                     "last_updated": firestore.SERVER_TIMESTAMP,
                 })
@@ -327,7 +341,9 @@ class WalletRepository:
                 "gateway": gateway,
                 "initiated_by": f"backend:{reviewed_by}",
                 "timestamp": firestore.SERVER_TIMESTAMP,
+                "balance_before": curr_balance,
                 "balance_after": new_balance,
+                "sequence_number": new_version,
                 "idempotency_key": payment_id,
                 "reference_type": "pending_deposit",
                 "reference_id": deposit_id,
@@ -343,3 +359,157 @@ class WalletRepository:
             return True
 
         return _run()
+
+    @staticmethod
+    def create_refund_request(
+        user_uid: str,
+        order_id: str,
+        reason: Optional[str] = None,
+    ) -> RefundRequestItem:
+        """
+        Creates a refund request in refund_requests and sets order status to refund_pending.
+        """
+        from fastapi import HTTPException, status as http_status
+
+        order_ref = db.collection(_ORDERS_COL).document(order_id)
+        order_snap = order_ref.get()
+        if not order_snap.exists:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Order '{order_id}' not found.",
+            )
+
+        order_data = order_snap.to_dict() or {}
+        if order_data.get("userId") != user_uid:
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You can only request a refund for your own orders.",
+            )
+
+        curr_status = str(order_data.get("status", "")).lower()
+        if curr_status != "placed":
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=f"Refund can only be requested for orders in 'placed' status (current: {curr_status}).",
+            )
+
+        # Check for existing pending/approved refund request
+        existing_reqs = (
+            db.collection(_REFUND_REQUESTS_COL)
+            .where("order_id", "==", order_id)
+            .stream()
+        )
+        for req in existing_reqs:
+            r_data = req.to_dict() or {}
+            if r_data.get("status") in ("refund_requested", "refund_under_review", "approved", "credited"):
+                raise HTTPException(
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
+                    detail=f"A refund request already exists for order '{order_id}' (status: {r_data.get('status')}).",
+                )
+
+        amount = float(order_data.get("total", 0.0))
+        req_ref = db.collection(_REFUND_REQUESTS_COL).document()
+
+        doc_data = {
+            "user_uid": user_uid,
+            "order_id": order_id,
+            "amount": amount,
+            "reason": reason or "Customer requested cancellation",
+            "status": "refund_requested",
+            "created_at": firestore.SERVER_TIMESTAMP,
+            "updated_at": firestore.SERVER_TIMESTAMP,
+        }
+        req_ref.set(doc_data)
+        order_ref.update({"status": "refund_pending"})
+
+        created_snap = req_ref.get()
+        return RefundRequestItem.from_firestore(req_ref.id, created_snap.to_dict() or doc_data)
+
+    @staticmethod
+    def create_manual_adjustment(
+        user_uid: str,
+        amount: float,
+        description: str,
+        admin_uid: str,
+    ) -> dict:
+        """
+        Executes a manual wallet adjustment for admin operations.
+        """
+        from fastapi import HTTPException, status as http_status
+
+        user_ref = db.collection("Users").document(user_uid)
+        if not user_ref.get().exists:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"User '{user_uid}' not found.",
+            )
+
+        wallet_ref = db.collection(_WALLETS_COL).document(user_uid)
+        txn_ref = db.collection(_TXNS_COL).document()
+
+        @db.transaction
+        def _run(transaction):
+            w_snap = wallet_ref.get(transaction=transaction)
+            curr_balance = 0.0
+            curr_total_added = 0.0
+            curr_total_spent = 0.0
+            version = 0
+
+            if w_snap.exists:
+                w_data = w_snap.to_dict() or {}
+                curr_balance = float(w_data.get("balance", 0.0))
+                curr_total_added = float(w_data.get("total_added", 0.0))
+                curr_total_spent = float(w_data.get("total_spent", 0.0))
+                version = int(w_data.get("version", 0))
+
+            new_balance = curr_balance + amount
+            if new_balance < 0:
+                raise HTTPException(
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
+                    detail=f"Insufficient balance for debit. Current balance: INR {curr_balance:.2f}",
+                )
+
+            new_version = version + 1
+            wallet_payload = {
+                "balance": new_balance,
+                "version": new_version,
+                "last_updated": firestore.SERVER_TIMESTAMP,
+            }
+            if amount > 0:
+                wallet_payload["total_added"] = curr_total_added + amount
+            else:
+                wallet_payload["total_spent"] = curr_total_spent + abs(amount)
+
+            if not w_snap.exists:
+                wallet_payload["created_at"] = firestore.SERVER_TIMESTAMP
+                transaction.set(wallet_ref, wallet_payload)
+            else:
+                transaction.update(wallet_ref, wallet_payload)
+
+            transaction.set(txn_ref, {
+                "user_uid": user_uid,
+                "type": "adjustment",
+                "amount": abs(amount),
+                "status": "success",
+                "description": description,
+                "direction": "credit" if amount > 0 else "debit",
+                "initiated_by": admin_uid,
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "balance_before": curr_balance,
+                "balance_after": new_balance,
+                "sequence_number": new_version,
+                "reference_type": "adjustment",
+                "reference_id": txn_ref.id,
+            })
+
+            return {
+                "user_uid": user_uid,
+                "amount": amount,
+                "balance_before": curr_balance,
+                "balance_after": new_balance,
+                "transaction_id": txn_ref.id,
+            }
+
+        return _run()
+
+

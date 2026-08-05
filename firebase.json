@@ -1,1 +1,45 @@
-{"firestore":{"rules":"firestore.rules"},"flutter":{"platforms":{"android":{"default":{"projectId":"canteen-app-e1c8d","appId":"1:61569697681:android:7d42ab7e10374513dcbc30","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"canteen-app-e1c8d","configurations":{"android":"1:61569697681:android:7d42ab7e10374513dcbc30","ios":"1:61569697681:ios:97992dcc368bda16dcbc30","macos":"1:61569697681:ios:97992dcc368bda16dcbc30","web":"1:61569697681:web:443d5bcb6c86ac12dcbc30","windows":"1:61569697681:web:25d042fbced62c07dcbc30"}}}}}}
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "emulators": {
+    "firestore": {
+      "host": "127.0.0.1",
+      "port": 9090
+    },
+    "ui": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 4000
+    }
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default"
+    }
+  ],
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "canteen-app-e1c8d",
+          "appId": "1:61569697681:android:7d42ab7e10374513dcbc30",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "canteen-app-e1c8d",
+          "configurations": {
+            "android": "1:61569697681:android:7d42ab7e10374513dcbc30",
+            "ios": "1:61569697681:ios:97992dcc368bda16dcbc30",
+            "macos": "1:61569697681:ios:97992dcc368bda16dcbc30",
+            "web": "1:61569697681:web:443d5bcb6c86ac12dcbc30",
+            "windows": "1:61569697681:web:25d042fbced62c07dcbc30"
+          }
+        }
+      }
+    }
+  }
+}

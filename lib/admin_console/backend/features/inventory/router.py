@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from auth.dependencies import get_current_admin
+from auth.dependencies import get_current_admin, get_current_staff_or_admin
 from config.logging import log_audit
 from .schemas import MenuItem, CreateMenuItemRequest, UpdateMenuItemRequest
 from .service import InventoryService
@@ -15,7 +15,7 @@ router = APIRouter()
     description="Returns every item in the Menu collection, sorted by category then name, with current stock levels.",
 )
 def list_items(
-    _admin: dict = Depends(get_current_admin),
+    _user: dict = Depends(get_current_staff_or_admin),
 ) -> list[MenuItem]:
     return InventoryService.list_items()
 
@@ -27,7 +27,7 @@ def list_items(
 )
 def get_item(
     menu_id: str,
-    _admin: dict = Depends(get_current_admin),
+    _user: dict = Depends(get_current_staff_or_admin),
 ) -> MenuItem:
     return InventoryService.get_item(menu_id)
 
@@ -65,13 +65,14 @@ def create_item(
 def update_item(
     menu_id: str,
     payload: UpdateMenuItemRequest,
-    _admin: dict = Depends(get_current_admin),
+    user: dict = Depends(get_current_staff_or_admin),
 ) -> MenuItem:
     item = InventoryService.update_item(menu_id, payload)
     log_audit(
         action="INVENTORY_ITEM_UPDATE",
-        actor_uid=_admin.get("uid", "unknown"),
+        actor_uid=user.get("uid", "unknown"),
         target=f"Menu/{menu_id}",
         details={"updated_fields": payload.model_dump(exclude_unset=True), "new_stock": item.stock, "new_price": item.price},
     )
     return item
+

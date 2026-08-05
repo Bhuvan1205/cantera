@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/services/api_client.dart';
 import '../../user_console/services/auth_service.dart';
 import '../../theme/app_colors.dart';
 
@@ -187,10 +188,11 @@ class _AdminMenuItemCardState extends State<_AdminMenuItemCard> {
     });
 
     try {
-      await FirebaseFirestore.instance
-          .collection('Menu')
-          .doc(widget.document.id)
-          .update({field: parsed});
+      final backendField = field == 'price' ? 'price' : 'stock';
+      await ApiClient.instance.patch(
+        '/api/inventory/${widget.document.id}',
+        body: {backendField: parsed},
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -210,10 +212,10 @@ class _AdminMenuItemCardState extends State<_AdminMenuItemCard> {
     });
 
     try {
-      await FirebaseFirestore.instance
-          .collection('Menu')
-          .doc(widget.document.id)
-          .update({'isAvailable': value});
+      await ApiClient.instance.patch(
+        '/api/inventory/${widget.document.id}',
+        body: {'is_available': value},
+      );
     } finally {
       if (mounted) {
         setState(() {

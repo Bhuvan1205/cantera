@@ -373,3 +373,111 @@ class OrderRepository:
             t_doc.reference.update(token_update)
 
         return OrderRepository.get_order_by_id(snap.id)
+
+    @staticmethod
+    def cancel_order(order_id: str, caller_uid: str, is_admin: bool = False) -> OrderDetail:
+        """
+        Cancels an order in 'placed' status.
+        Restores item stock in Menu, issues wallet refund if paid via wallet, and invalidates tokens.
+        """
+        from fastapi import HTTPException, status as http_status
+
+        order_ref, snap = OrderRepository._find_order_doc_ref(order_id)
+        if not order_ref or not snap or not snap.exists:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Order '{order_id}' not found.",
+            )
+
+        order_data = snap.to_dict() or {}
+        user_id = order_data.get("userId")
+
+        if not is_admin and user_id != caller_uid:
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to cancel this order.",
+            )
+
+        curr_status = str(order_data.get("status", "")).lower()
+        if curr_status != "placed":
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=f"Order cannot be cancelled because it is in '{curr_status}' status.",
+            )
+
+        # 1. Restock items in Menu
+        items = order_data.get("items", [])
+        for item in items:
+            item_name = item.get("name")
+            qty = int(item.get("quantity", 1))
+            if item_name and qty > 0:
+                menu_docs = list(db.collection(_MENU_COL).where("name", "==", item_name).limit(1).stream())
+                if menu_docs:
+                    m_ref = menu_docs[0].reference
+                    m_ref.update({"stock": firestore.Increment(qty)})
+
+        # 2. Refund wallet if paid via wallet
+        payment_method = str(order_data.get("payment_method", "")).lower()
+        total_amount = float(order_data.get("total", 0.0))
+        if payment_method == "wallet" and total_amount > 0 and user_id:
+            wallet_ref = db.collection("wallets").document(user_id)
+            txn_ref = db.collection("wallet_transactions").document()
+
+            @db.transaction
+            def _refund_txn(transaction):
+                w_snap = wallet_ref.get(transaction=transaction)
+                curr_balance = 0.0
+                curr_total_spent = 0.0
+                version = 0
+                if w_snap.exists:
+                    w_data = w_snap.to_dict() or {}
+                    curr_balance = float(w_data.get("balance", 0.0))
+                    curr_total_spent = float(w_data.get("total_spent", 0.0))
+                    version = int(w_data.get("version", 0))
+
+                new_balance = curr_balance + total_amount
+                new_version = version + 1
+                transaction.update(wallet_ref, {
+                    "balance": new_balance,
+                    "total_spent": max(0.0, curr_total_spent - total_amount),
+                    "version": new_version,
+                    "last_updated": firestore.SERVER_TIMESTAMP,
+                })
+                transaction.set(txn_ref, {
+                    "user_uid": user_id,
+                    "type": "refund",
+                    "amount": total_amount,
+                    "status": "success",
+                    "description": f"Auto-refund for cancelled order #{order_id}",
+                    "direction": "credit",
+                    "initiated_by": f"system:cancel:{caller_uid}",
+                    "timestamp": firestore.SERVER_TIMESTAMP,
+                    "balance_before": curr_balance,
+                    "balance_after": new_balance,
+                    "sequence_number": new_version,
+                    "reference_type": "order_cancellation",
+                    "reference_id": order_id,
+                })
+            try:
+                _refund_txn()
+            except Exception:
+                pass
+
+        # 3. Update order document
+        order_ref.update({
+            "status": "cancelled",
+            "overall_status": "cancelled",
+            "cancelled_at": firestore.SERVER_TIMESTAMP,
+            "cancelled_by": caller_uid,
+        })
+
+        # 4. Invalidate tokens
+        token_docs = order_ref.collection("tokens").stream()
+        for t_doc in token_docs:
+            t_doc.reference.update({
+                "token_status": "cancelled",
+                "qr_valid": False,
+            })
+
+        return OrderRepository.get_order_by_id(snap.id)
+
