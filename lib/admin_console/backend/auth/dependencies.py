@@ -1,11 +1,26 @@
+import os
+import threading
+from datetime import datetime, timezone
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from config.firebase import db
-from auth.verify import verify_firebase_token
+from auth.verify import verify_firebase_token, verify_sensitive_firebase_token
 
 # FastAPI will automatically parse "Authorization: Bearer <token>" headers.
 _bearer = HTTPBearer(auto_error=True)
+
+
+def _trace_backend_step(step: str, exception: str = "None") -> None:
+    print(
+        f"{step}\n"
+        f"Executed: YES\n"
+        f"Timestamp: {datetime.now(timezone.utc).isoformat()}\n"
+        f"Process: {os.getpid()}\n"
+        f"Thread: {threading.current_thread().name}\n"
+        f"Exception: {exception}",
+        flush=True,
+    )
 
 
 def get_current_admin(
@@ -15,7 +30,7 @@ def get_current_admin(
     FastAPI dependency that enforces two layers of admin verification:
 
     Layer 1 — Firebase Auth:
-        Verifies the Bearer token is a valid, non-expired Firebase ID token.
+        Verifies the Bearer token is a valid, non-expired Firebase ID token (stateless).
         Extracts the uid from the decoded claims.
 
     Layer 2 — Firestore role check:
@@ -65,6 +80,47 @@ def get_current_admin(
     return {"uid": uid, **decoded, "user_data": user_data}
 
 
+def get_current_sensitive_admin(
+    http_creds: HTTPAuthorizationCredentials = Depends(_bearer),
+) -> dict:
+    """
+    FastAPI dependency for sensitive admin actions (e.g. bank payouts, role changes).
+    Enforces token revocation checks in production.
+    """
+    token = http_creds.credentials
+    decoded = verify_sensitive_firebase_token(token)
+
+    uid: str | None = decoded.get("uid")
+    if not uid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token is missing the uid claim.",
+        )
+
+    if decoded.get("admin") is True or decoded.get("isAdmin") is True:
+        return {"uid": uid, **decoded, "user_data": {"isAdmin": True, "admin": True}}
+
+    user_ref = db.collection("Users").document(uid)
+    user_snap = user_ref.get()
+
+    if not user_snap.exists:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User record not found in Firestore.",
+        )
+
+    user_data: dict = user_snap.to_dict() or {}
+
+    if not user_data.get("isAdmin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Administrator privileges required.",
+        )
+
+    return {"uid": uid, **decoded, "user_data": user_data}
+
+
+
 def get_current_user(
     http_creds: HTTPAuthorizationCredentials = Depends(_bearer),
 ) -> dict:
@@ -80,17 +136,24 @@ def get_current_user(
     Raises:
         HTTP 401 — invalid / expired token
     """
-    token = http_creds.credentials
-    decoded = verify_firebase_token(token)
+    trace_exception = "None"
+    try:
+        token = http_creds.credentials
+        decoded = verify_firebase_token(token)
 
-    uid: str | None = decoded.get("uid")
-    if not uid:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token is missing the uid claim.",
-        )
+        uid: str | None = decoded.get("uid")
+        if not uid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token is missing the uid claim.",
+            )
 
-    return {"uid": uid, "email": decoded.get("email")}
+        return {"uid": uid, "email": decoded.get("email")}
+    except Exception as exc:
+        trace_exception = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        _trace_backend_step("STEP 7", trace_exception)
 
 
 def get_current_staff_or_admin(
@@ -136,4 +199,3 @@ def get_current_staff_or_admin(
         )
 
     return {"uid": uid, **decoded, "user_data": user_data}
-

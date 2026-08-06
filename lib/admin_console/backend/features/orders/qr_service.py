@@ -36,17 +36,18 @@ class QrService:
             counter_or_token = "general"
 
         order_ref = db.collection("Orders").document(order_id)
-        order_snap = order_ref.get()
+        token_ref = order_ref.collection("tokens").document(counter_or_token)
+
+        # Batched read: fetch order doc and candidate token doc in a single RPC
+        order_snap, token_snap = db.get_all([order_ref, token_ref])
+
         if not order_snap.exists:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Order '{order_id}' not found.",
             )
 
-        token_ref = order_ref.collection("tokens").document(counter_or_token)
-        token_snap = token_ref.get()
-
-        # If subcollection token document doesn't exist under this name, try searching by counter field
+        # Resolve the correct token doc (direct, query, or fallback)
         target_token_ref = token_ref
         target_token_data = {}
         if token_snap.exists:
@@ -58,7 +59,6 @@ class QrService:
                 target_token_ref = matching_docs[0].reference
                 target_token_data = matching_docs[0].to_dict() or {}
             else:
-                # If still not found, check if single token exists
                 all_tokens = list(order_ref.collection("tokens").stream())
                 if len(all_tokens) == 1:
                     target_token_ref = all_tokens[0].reference
@@ -86,14 +86,16 @@ class QrService:
             )
 
         if counter == "mess":
-            # Mess counter: scan moves order to 'preparing' and prompts for OTP delivery
-            target_token_ref.update({
+            # Mess: single batched write — update token + update order status
+            batch = db.batch()
+            batch.update(target_token_ref, {
                 "token_status": "preparing",
                 "qr_valid": False,
                 "scanned_by": staff_uid,
                 "scanned_at": firestore.SERVER_TIMESTAMP,
             })
-            order_ref.update({"status": "preparing"})
+            batch.update(order_ref, {"status": "preparing"})
+            batch.commit()
             return ScanQrResponse(
                 order_id=order_id,
                 counter=counter,
@@ -102,24 +104,28 @@ class QrService:
                 message="Mess order scanned. Preparing meal; enter OTP to complete delivery.",
             )
         else:
-            # Direct counters (bakery, beverages, continental, etc.): instantly delivered
-            target_token_ref.update({
+            # Direct counter: mark token delivered, then check if all tokens delivered
+            # Read all sibling tokens (needed to determine order-level completion)
+            all_tokens = list(order_ref.collection("tokens").stream())
+            all_delivered = all(
+                (t.id == target_token_ref.id or t.to_dict().get("token_status") == "delivered")
+                for t in all_tokens
+            )
+
+            # Single batched write commit
+            batch = db.batch()
+            batch.update(target_token_ref, {
                 "token_status": "delivered",
                 "qr_valid": False,
                 "scanned_by": staff_uid,
                 "delivered_at": firestore.SERVER_TIMESTAMP,
             })
-
-            # Check if all tokens for this order are delivered
-            all_tokens = list(order_ref.collection("tokens").stream())
-            all_delivered = all(
-                t.to_dict().get("token_status") == "delivered" for t in all_tokens
-            )
             if all_delivered:
-                order_ref.update({
+                batch.update(order_ref, {
                     "status": "delivered",
                     "overall_status": "completed",
                 })
+            batch.commit()
 
             return ScanQrResponse(
                 order_id=order_id,
@@ -136,7 +142,7 @@ class QrService:
         token_snap = token_ref.get()
 
         if not token_snap.exists:
-            # Fallback search by counter
+            # Fallback search by counter field
             query = order_ref.collection("tokens").where("counter", "==", counter.lower()).limit(1).stream()
             matching = list(query)
             if matching:
@@ -157,23 +163,27 @@ class QrService:
                 detail="Invalid OTP. Please check with the student.",
             )
 
-        token_ref.update({
+        # Read all sibling tokens to determine order completion
+        all_tokens = list(order_ref.collection("tokens").stream())
+        all_delivered = all(
+            (t.id == token_ref.id or t.to_dict().get("token_status") == "delivered")
+            for t in all_tokens
+        )
+
+        # Single batched commit: token update + optional order completion
+        batch = db.batch()
+        batch.update(token_ref, {
             "token_status": "delivered",
             "otp_verified": True,
             "verified_by": staff_uid,
             "delivered_at": firestore.SERVER_TIMESTAMP,
         })
-
-        # Check overall order status
-        all_tokens = list(order_ref.collection("tokens").stream())
-        all_delivered = all(
-            t.to_dict().get("token_status") == "delivered" for t in all_tokens
-        )
         if all_delivered:
-            order_ref.update({
+            batch.update(order_ref, {
                 "status": "delivered",
                 "overall_status": "completed",
             })
+        batch.commit()
 
         return VerifyOtpResponse(
             order_id=order_id,

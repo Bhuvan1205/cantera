@@ -6,7 +6,6 @@ import '../../theme/app_colors.dart';
 
 import '../utils/app_keys.dart';
 import '../widgets/labeled_input_field.dart';
-import 'main_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -60,9 +59,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       if (!mounted) return;
 
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => MainScreen()),
-      );
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
     } on FirebaseAuthException catch (e) {
       setState(() {
         _errorMessage = e.message ?? 'Registration failed. Please try again.';

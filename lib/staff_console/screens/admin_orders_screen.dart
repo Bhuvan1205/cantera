@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/services/api_client.dart';
-import '../../user_console/services/auth_service.dart';
 import '../../theme/app_colors.dart';
 import '../../user_console/utils/order_status_utils.dart';
 
@@ -15,14 +14,7 @@ class AdminOrdersScreen extends StatefulWidget {
 }
 
 class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
-  late final Future<bool> _adminFuture;
   final Set<String> _updatingOrderIds = <String>{};
-
-  @override
-  void initState() {
-    super.initState();
-    _adminFuture = AuthService.isCurrentUserAdmin();
-  }
 
   Future<void> _markDelivered(String orderId, String status) async {
     if (status.toLowerCase() == 'delivered' ||
@@ -49,39 +41,13 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<bool>(
-      future: _adminFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            backgroundColor: AppColors.bg,
-            body: Center(child: CircularProgressIndicator(color: AppColors.primary)),
-          );
-        }
-
-        if (snapshot.data != true) {
-          return const Scaffold(
-            backgroundColor: AppColors.bg,
-            body: Center(
-              child: Text(
-                'Access Denied',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.primary,
-                ),
-              ),
-            ),
-          );
-        }
-
-        return Scaffold(
-          backgroundColor: AppColors.bg,
-          appBar: AppBar(
-            backgroundColor: AppColors.bg,
-            elevation: 0,
-            scrolledUnderElevation: 0,
-            automaticallyImplyLeading: false,
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: AppBar(
+        backgroundColor: AppColors.bg,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        automaticallyImplyLeading: true,
             title: const Text(
               'Manage Orders',
               style: TextStyle(
@@ -337,8 +303,6 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
             },
           ),
         );
-      },
-    );
   }
 }
 

@@ -94,8 +94,11 @@ class WalletRepository:
             txn_ref = db.collection(_TXNS_COL).document()
             order_ref = db.collection(_ORDERS_COL).document(order_id) if order_id else None
 
-            @db.transaction
+            tx = db.transaction()
+
+            @firestore.transactional
             def _run_refund(transaction):
+                # ── ALL READS FIRST (Firestore invariant) ──
                 # 1. Re-read refund inside transaction to prevent double approval
                 r_snap = refund_ref.get(transaction=transaction)
                 if not r_snap.exists:
@@ -106,6 +109,11 @@ class WalletRepository:
 
                 # 2. Re-read wallet inside transaction
                 w_snap = wallet_ref.get(transaction=transaction)
+
+                # 3. Re-read associated order inside transaction (must precede writes)
+                o_snap = order_ref.get(transaction=transaction) if order_ref else None
+
+                # ── COMPUTE VALUES ──
                 curr_balance = 0.0
                 total_added = 0.0
                 total_spent = 0.0
@@ -122,6 +130,8 @@ class WalletRepository:
                 new_balance = curr_balance + amount
                 new_spent = max(0.0, total_spent - amount)
 
+                # ── ALL WRITES SECOND ──
+                # 1. Update / Set wallet
                 if w_snap.exists:
                     transaction.update(wallet_ref, {
                         "balance": new_balance,
@@ -140,7 +150,7 @@ class WalletRepository:
                         "last_updated": firestore.SERVER_TIMESTAMP,
                     })
 
-                # 3. Create wallet transaction record
+                # 2. Create wallet transaction record
                 transaction.set(txn_ref, {
                     "user_uid": user_uid,
                     "type": "refund",
@@ -156,25 +166,22 @@ class WalletRepository:
                     "timestamp": firestore.SERVER_TIMESTAMP,
                 })
 
-
-                # 4. Update refund request document
+                # 3. Update refund request document
                 transaction.update(refund_ref, {
                     "status": "credited",
                     "reviewed_at": firestore.SERVER_TIMESTAMP,
                     "reviewed_by": admin_uid,
                 })
 
-                # 5. Update associated order if exists
-                if order_ref:
-                    o_snap = order_ref.get(transaction=transaction)
-                    if o_snap.exists:
-                        transaction.update(order_ref, {
-                            "status": "refunded",
-                            "overall_status": "completed",
-                        })
+                # 4. Update associated order if exists
+                if order_ref and o_snap and o_snap.exists:
+                    transaction.update(order_ref, {
+                        "status": "refunded",
+                        "overall_status": "completed",
+                    })
                 return True
 
-            _run_refund()
+            _run_refund(tx)
 
         elif new_status == "rejected":
             refund_ref.update({
@@ -276,9 +283,10 @@ class WalletRepository:
         gateway = deposit_data.get("gateway", "razorpay")
 
         # ── Idempotency check: existing wallet transaction for this payment ──
+        idempotency_key = payment_id if payment_id else f"dep_tx_{deposit_id}"
         existing_txns = (
             db.collection(_TXNS_COL)
-            .where("idempotency_key", "==", payment_id)
+            .where("idempotency_key", "==", idempotency_key)
             .where("status", "==", "success")
             .limit(1)
             .stream()
@@ -290,7 +298,9 @@ class WalletRepository:
         wallet_ref = db.collection(_WALLETS_COL).document(user_uid)
         txn_ref = db.collection(_TXNS_COL).document()
 
-        @db.transaction
+        tx = db.transaction()
+
+        @firestore.transactional
         def _run(transaction):
             # Re-read deposit inside transaction — concurrent approval guard.
             d_snap = deposit_ref.get(transaction=transaction)
@@ -344,7 +354,7 @@ class WalletRepository:
                 "balance_before": curr_balance,
                 "balance_after": new_balance,
                 "sequence_number": new_version,
-                "idempotency_key": payment_id,
+                "idempotency_key": idempotency_key,
                 "reference_type": "pending_deposit",
                 "reference_id": deposit_id,
             })
@@ -358,7 +368,7 @@ class WalletRepository:
 
             return True
 
-        return _run()
+        return _run(tx)
 
     @staticmethod
     def create_refund_request(
@@ -447,7 +457,9 @@ class WalletRepository:
         wallet_ref = db.collection(_WALLETS_COL).document(user_uid)
         txn_ref = db.collection(_TXNS_COL).document()
 
-        @db.transaction
+        tx = db.transaction()
+
+        @firestore.transactional
         def _run(transaction):
             w_snap = wallet_ref.get(transaction=transaction)
             curr_balance = 0.0
@@ -510,6 +522,6 @@ class WalletRepository:
                 "transaction_id": txn_ref.id,
             }
 
-        return _run()
+        return _run(tx)
 
 

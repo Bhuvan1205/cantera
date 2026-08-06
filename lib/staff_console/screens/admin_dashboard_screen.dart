@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../user_console/screens/qr_scanner_screen.dart';
-import '../../user_console/services/auth_service.dart';
 import '../../user_console/services/order_service.dart';
 import '../../theme/app_colors.dart';
 import '../tabs/staff_inventory_tab.dart';
@@ -24,17 +23,10 @@ class AdminDashboardScreen extends StatefulWidget {
 }
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
-  late final Future<bool> _adminFuture;
   int _currentIndex = 0;
   bool _newOrderAlerts = true;
   bool _stockWarnings = true;
   bool _dailySummary = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _adminFuture = AuthService.isCurrentUserAdmin();
-  }
 
   /// Routes every admin QR scan through [OrderService.handleQrScan] which
   /// handles the new subcollection schema, old categoryTokens, and mess OTP flow.
@@ -168,107 +160,77 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<bool>(
-      future: _adminFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            backgroundColor: AppColors.bg,
-            body: Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
-            ),
-          );
-        }
-
-        if (snapshot.data != true) {
-          return const Scaffold(
-            backgroundColor: AppColors.bg,
-            body: Center(
-              child: Text(
-                'Access Denied',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.primary,
-                ),
-              ),
-            ),
-          );
-        }
-
-        return Scaffold(
-          backgroundColor: AppColors.bg,
-          appBar: AppBar(
-            backgroundColor: AppColors.bg,
-            elevation: 0,
-            scrolledUnderElevation: 0,
-            automaticallyImplyLeading: false,
-            centerTitle: true,
-            title: const Text(
-              'CANTEEN STAFF',
-              style: TextStyle(
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: AppBar(
+        backgroundColor: AppColors.bg,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        automaticallyImplyLeading: false,
+        centerTitle: true,
+        title: const Text(
+          'CANTEEN STAFF',
+          style: TextStyle(
+            color: AppColors.primary,
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.5,
+          ),
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12.0),
+            child: IconButton(
+              onPressed: _openScanner,
+              icon: const Icon(
+                Icons.qr_code_scanner_rounded,
                 color: AppColors.primary,
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.5,
+                size: 26,
               ),
+              tooltip: 'Scan Order Token',
             ),
-            actions: [
-              Padding(
-                padding: const EdgeInsets.only(right: 12.0),
-                child: IconButton(
-                  onPressed: _openScanner,
-                  icon: const Icon(
-                    Icons.qr_code_scanner_rounded,
-                    color: AppColors.primary,
-                    size: 26,
-                  ),
-                  tooltip: 'Scan Order Token',
-                ),
-              ),
-            ],
           ),
-          extendBody: true, // Flow content under staff bottom nav
-          body: IndexedStack(
-            index: _currentIndex,
-            children: [
-              StaffOrdersTab(onOpenScanner: _openScanner),
-              const StaffInventoryTab(),
-              const StaffQueueTab(),
-              const StaffWalletTab(),
-              StaffSettingsTab(
-                newOrderAlerts: _newOrderAlerts,
-                stockWarnings: _stockWarnings,
-                dailySummary: _dailySummary,
-                onNewOrderAlertsChanged: (value) {
-                  setState(() {
-                    _newOrderAlerts = value;
-                  });
-                },
-                onStockWarningsChanged: (value) {
-                  setState(() {
-                    _stockWarnings = value;
-                  });
-                },
-                onDailySummaryChanged: (value) {
-                  setState(() {
-                    _dailySummary = value;
-                  });
-                },
-              ),
-            ],
-          ),
-          bottomNavigationBar: StaffBottomNav(
-            currentIndex: _currentIndex,
-            onChanged: (index) {
+        ],
+      ),
+      extendBody: true, // Flow content under staff bottom nav
+      body: IndexedStack(
+        index: _currentIndex,
+        children: [
+          StaffOrdersTab(onOpenScanner: _openScanner),
+          const StaffInventoryTab(),
+          const StaffQueueTab(),
+          const StaffWalletTab(),
+          StaffSettingsTab(
+            newOrderAlerts: _newOrderAlerts,
+            stockWarnings: _stockWarnings,
+            dailySummary: _dailySummary,
+            onNewOrderAlertsChanged: (value) {
               setState(() {
-                _currentIndex = index;
+                _newOrderAlerts = value;
               });
             },
-            onScanTap: _openScanner,
+            onStockWarningsChanged: (value) {
+              setState(() {
+                _stockWarnings = value;
+              });
+            },
+            onDailySummaryChanged: (value) {
+              setState(() {
+                _dailySummary = value;
+              });
+            },
           ),
-        );
-      },
+        ],
+      ),
+      bottomNavigationBar: StaffBottomNav(
+        currentIndex: _currentIndex,
+        onChanged: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+        onScanTap: _openScanner,
+      ),
     );
   }
 

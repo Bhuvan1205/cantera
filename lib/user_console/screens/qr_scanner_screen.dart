@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-import '../../theme/app_colors.dart';
+import '../../staff_console/screens/access_denied_screen.dart';
 
 class QrScannerScreen extends StatefulWidget {
   const QrScannerScreen({
@@ -18,54 +18,47 @@ class QrScannerScreen extends StatefulWidget {
 }
 
 class _QrScannerScreenState extends State<QrScannerScreen> {
-  final MobileScannerController _controller = MobileScannerController();
-  bool _hasScanned = false;
+  late final MobileScannerController _controller;
   bool _isProcessing = false;
 
+  @override
+  void initState() {
+    super.initState();
+    _controller = MobileScannerController(
+      detectionSpeed: DetectionSpeed.noDuplicates,
+      facing: CameraFacing.back,
+    );
+  }
+
   Future<void> _handleDetection(BarcodeCapture capture) async {
-    if (_hasScanned || _isProcessing) return;
+    if (_isProcessing) return;
 
     final barcode = capture.barcodes.firstOrNull;
-    final scannedValue = barcode?.rawValue?.trim();
-
-    if (scannedValue == null || scannedValue.isEmpty) return;
+    final rawValue = barcode?.rawValue;
+    if (rawValue == null || rawValue.isEmpty) return;
 
     setState(() {
-      _hasScanned = true;
       _isProcessing = true;
     });
 
-    await _controller.stop();
-
     try {
-      final result = await widget.markAsDelivered(scannedValue);
-
+      final result = await widget.markAsDelivered(rawValue);
       if (!mounted) return;
-      
-      Navigator.of(context).pop('$scannedValue||$result');
+      Navigator.of(context).pop('$rawValue||$result');
     } catch (e) {
-      final errorMessage = e.toString();
-      
-      if (!mounted) return;
-
-      setState(() {
-        _hasScanned = false;
-        _isProcessing = false;
-      });
-
-      await _controller.start();
-
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            errorMessage.replaceFirst('Exception: ', ''),
-          ),
-          backgroundColor: AppColors.error,
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 3),
+          content: Text('Verification error: $e'),
+          backgroundColor: Colors.red,
         ),
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
     }
   }
 
@@ -80,20 +73,8 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
   @override
   Widget build(BuildContext context) {
     if (!widget.isAdmin) {
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('Scanner'),
-        ),
-        body: Center(
-          child: Text(
-            'Access Denied',
-            style: TextStyle(
-              color: Colors.red.shade700,
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
+      return const AccessDeniedScreen(
+        message: 'Staff or administrator privileges are required to access the QR scanner.',
       );
     }
 

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../config/app_config.dart';
 
@@ -96,11 +97,24 @@ class ApiClient {
 
   /// Performs a POST request
   Future<dynamic> post(String path, {dynamic body, Map<String, String>? headers}) async {
-    final uri = _buildUri(path);
-    final reqHeaders = await _getHeaders(extraHeaders: headers);
-    final encodedBody = body != null ? jsonEncode(body) : null;
-    final response = await http.post(uri, headers: reqHeaders, body: encodedBody);
-    return _handleResponse(response);
+    Object? traceException;
+    try {
+      final uri = _buildUri(path);
+      final reqHeaders = await _getHeaders(extraHeaders: headers);
+      final encodedBody = body != null ? jsonEncode(body) : null;
+      final response = await http.post(uri, headers: reqHeaders, body: encodedBody);
+      return _handleResponse(response);
+    } catch (e) {
+      traceException = e;
+      rethrow;
+    } finally {
+      debugPrint(
+        'STEP 3\n'
+        'Executed: YES\n'
+        'Timestamp: ${DateTime.now().toUtc().toIso8601String()}\n'
+        'Exception: ${traceException == null ? 'None' : '${traceException.runtimeType}: $traceException'}',
+      );
+    }
   }
 
   /// Performs a PATCH request

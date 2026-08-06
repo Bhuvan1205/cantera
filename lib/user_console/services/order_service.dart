@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 
+import 'package:flutter/foundation.dart';
+
 import '../../config/app_config.dart';
 import '../../core/utils/idempotency.dart';
 
@@ -23,39 +25,80 @@ class OrderService {
     String? userName,
     String paymentMethod = 'wallet',
   }) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) throw Exception('User is not authenticated.');
+    Object? step2Exception;
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('User is not authenticated.');
 
-    final idToken = await user.getIdToken();
-    final uri = Uri.parse('${AppConfig.backendBaseUrl}/api/orders/checkout');
+      final idToken = await user.getIdToken();
+      final uri = Uri.parse('${AppConfig.backendBaseUrl}/api/orders/checkout');
 
-    final itemsPayload = cart.entries.map((e) => {
-      'menu_item_id': e.key,
-      'quantity': e.value['quantity'] as int,
-    }).toList();
+      final itemsPayload = cart.entries.map((e) => {
+        'menu_item_id': e.key,
+        'quantity': e.value['quantity'] as int,
+      }).toList();
 
-    final response = await http.post(
-      uri,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $idToken',
-        'Idempotency-Key': IdempotencyUtils.generateKey(),
-      },
-      body: jsonEncode({
+      final idempotencyKey = IdempotencyUtils.generateKey();
+      final requestBody = jsonEncode({
         'items': itemsPayload,
         'payment_method': paymentMethod,
         'user_name': userName ?? user.displayName,
-      }),
-    );
+      });
 
-    if (response.statusCode != 200 && response.statusCode != 201) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>?;
-      final detail = body?['detail'] as String? ?? 'Order placement failed.';
-      throw Exception(detail);
+      final headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $idToken',
+        'Idempotency-Key': idempotencyKey,
+      };
+
+      debugPrint(
+        'STEP 4\n'
+        'Executed: YES\n'
+        'Timestamp: ${DateTime.now().toUtc().toIso8601String()}\n'
+        'Exception: None',
+      );
+
+      final response = await http.post(
+        uri,
+        headers: headers,
+        body: requestBody,
+      );
+
+      debugPrint(
+        'STEP 11\n'
+        'Executed: YES\n'
+        'Timestamp: ${DateTime.now().toUtc().toIso8601String()}\n'
+        'Exception: None\n'
+        'ResponseStatus: ${response.statusCode}\n'
+        'ResponseBody: ${response.body}',
+      );
+
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>?;
+        final detail = body?['detail'] as String? ?? 'Order placement failed.';
+        throw Exception(detail);
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      return data['order_id'] as String;
+    } catch (e, stack) {
+      step2Exception = e;
+      debugPrint(
+        'STEP 11\n'
+        'Executed: YES\n'
+        'Timestamp: ${DateTime.now().toUtc().toIso8601String()}\n'
+        'Exception: ${e.runtimeType}: $e\n'
+        'StackTrace:\n$stack',
+      );
+      rethrow;
+    } finally {
+      debugPrint(
+        'STEP 2\n'
+        'Executed: YES\n'
+        'Timestamp: ${DateTime.now().toUtc().toIso8601String()}\n'
+        'Exception: ${step2Exception == null ? 'None' : '${step2Exception.runtimeType}: $step2Exception'}',
+      );
     }
-
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-    return data['order_id'] as String;
   }
 
   // ──────────────────────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ from typing import Optional
 from google.cloud import firestore
 
 from config.firebase import db
+from features.inventory.schemas import is_quantified_item
 from .schemas import (
     OrderItem,
     TokenDocument,
@@ -279,9 +280,7 @@ class OrderRepository:
 
         # ── 3. Decrement stock for quantifiable items ────────────────────────
         for item in payload.items:
-            cat = item.category.lower().strip()
-            name = item.name.strip().lower()
-            if cat in ("mess", "continental") or name in ("tea", "coffee"):
+            if not is_quantified_item({"category": item.category, "name": item.name}):
                 continue
 
             # Query Menu item by matching name
@@ -290,7 +289,9 @@ class OrderRepository:
                 doc_ref = menu_doc.reference
                 qty = item.quantity
 
-                @db.transaction
+                tx = db.transaction()
+
+                @firestore.transactional
                 def _decrement(transaction):
                     snap = doc_ref.get(transaction=transaction)
                     if snap.exists:
@@ -300,7 +301,7 @@ class OrderRepository:
                             new_stock = max(0, curr_stock - qty)
                             transaction.update(doc_ref, {"stock": new_stock})
 
-                _decrement()
+                _decrement(tx)
 
         summary = OrderSummary(
             order_id=order_id,

@@ -91,6 +91,7 @@ class _OrderQrScreenState extends State<OrderQrScreen> {
         return 'delivered';
       case 'refund_pending':
         return 'refund_pending';
+      case 'refunded':
       case 'cancelled':
         return 'cancelled';
       default:
@@ -217,12 +218,14 @@ class _OrderQrScreenState extends State<OrderQrScreen> {
         // Fallback: no categoryTokens → single legacy QR
         if (tokens.isEmpty) {
           final isDelivered = overallStatus == 'delivered';
+          final isCancelled = overallStatus == 'cancelled';
           return _buildScaffold(
             context: context,
             pageCount: 1,
             child: _SingleQrView(
               orderId: widget.orderId,
               isDelivered: isDelivered,
+              isCancelled: isCancelled,
               tokenNumber:
                   ((data['tokenNumber'] ?? 0) as num).toInt(),
             ),
@@ -310,6 +313,9 @@ class _CategoryTokenInfo {
   });
 
   bool get isDelivered => status.toLowerCase() == 'delivered';
+  bool get isCancelled =>
+      status.toLowerCase() == 'cancelled' ||
+      status.toLowerCase() == 'refunded';
 }
 
 // ── Per-category QR card ──────────────────────────────────────────────────────
@@ -329,6 +335,8 @@ class _CategoryQrCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final meta = _metaFor(token.category);
     final isDelivered = token.isDelivered;
+    final isCancelled = token.isCancelled;
+    final isInactive = isDelivered || isCancelled;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -349,12 +357,16 @@ class _CategoryQrCard extends StatelessWidget {
 
         // ── Status label ──────────────────────────────────────────────────────
         Text(
-          isDelivered ? 'Token Used' : 'Show at Counter',
+          isCancelled
+              ? 'Refunded Order'
+              : isDelivered
+                  ? 'Token Used'
+                  : 'Show at Counter',
           style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w700,
             letterSpacing: 1.1,
-            color: isDelivered ? AppColors.error : AppColors.textMuted,
+            color: isInactive ? AppColors.error : AppColors.textMuted,
           ),
         ),
         const SizedBox(height: 6),
@@ -370,7 +382,7 @@ class _CategoryQrCard extends StatelessWidget {
               style: TextStyle(
                 fontSize: 26,
                 fontWeight: FontWeight.w800,
-                color: isDelivered ? AppColors.textMuted : AppColors.textPrimary,
+                color: isInactive ? AppColors.textMuted : AppColors.textPrimary,
                 letterSpacing: -0.5,
               ),
             ),
@@ -378,7 +390,9 @@ class _CategoryQrCard extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          'Present at ${meta.label} counter',
+          isCancelled
+              ? 'Order refunded / cancelled'
+              : 'Present at ${meta.label} counter',
           style: const TextStyle(
             fontSize: 13,
             color: AppColors.textMuted,
@@ -406,7 +420,7 @@ class _CategoryQrCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               // QR or deactivated state
-              if (isDelivered)
+              if (isInactive)
                 Container(
                   key: AppKeys.qrDeactivatedView,
                   width: 200,
@@ -419,10 +433,24 @@ class _CategoryQrCard extends StatelessWidget {
                       width: 1,
                     ),
                   ),
-                  child: const Icon(
-                    Icons.block_rounded,
-                    size: 72,
-                    color: AppColors.error,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.block_rounded,
+                        size: 64,
+                        color: AppColors.error,
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        isCancelled ? 'QR Invalid' : 'Token Used',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.error,
+                        ),
+                      ),
+                    ],
                   ),
                 )
               else
@@ -685,32 +713,44 @@ class _SingleQrView extends StatelessWidget {
   const _SingleQrView({
     required this.orderId,
     required this.isDelivered,
+    required this.isCancelled,
     required this.tokenNumber,
   });
 
   final String orderId;
   final bool isDelivered;
+  final bool isCancelled;
   final int tokenNumber;
 
   @override
   Widget build(BuildContext context) {
+    final isInactive = isDelivered || isCancelled;
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(28),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            isDelivered ? 'Order Delivered' : 'Ready for Pickup',
+            isCancelled
+                ? 'Refunded Order'
+                : isDelivered
+                    ? 'Order Delivered'
+                    : 'Ready for Pickup',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
               letterSpacing: 1.1,
-              color: isDelivered ? AppColors.error : AppColors.textMuted,
+              color: isInactive ? AppColors.error : AppColors.textMuted,
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            isDelivered ? 'QR Deactivated' : 'Show at counter',
+            isCancelled
+                ? 'Order Refunded'
+                : isDelivered
+                    ? 'QR Deactivated'
+                    : 'Show at counter',
             style: const TextStyle(
               fontSize: 26,
               fontWeight: FontWeight.w800,
@@ -736,7 +776,7 @@ class _SingleQrView extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (isDelivered)
+                if (isInactive)
                   Container(
                     key: AppKeys.qrDeactivatedView,
                     width: 220,
@@ -749,10 +789,24 @@ class _SingleQrView extends StatelessWidget {
                         width: 1,
                       ),
                     ),
-                    child: const Icon(
-                      Icons.block_rounded,
-                      size: 72,
-                      color: AppColors.error,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.block_rounded,
+                          size: 72,
+                          color: AppColors.error,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          isCancelled ? 'QR Invalid' : 'QR Deactivated',
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.error,
+                          ),
+                        ),
+                      ],
                     ),
                   )
                 else

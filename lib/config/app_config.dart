@@ -1,10 +1,12 @@
+import 'package:flutter/foundation.dart';
+
 /// Application-wide configuration constants.
 ///
 /// Configuration values are injected at build time using `--dart-define`:
 ///
 /// Development:
 ///   flutter run --dart-define=ENV=dev \
-///               --dart-define=BACKEND_URL=http://10.0.2.2:8000
+///               --dart-define=BACKEND_URL=http://127.0.0.1:8000
 ///
 /// Staging:
 ///   flutter run --dart-define=ENV=staging \
@@ -24,11 +26,22 @@ class AppConfig {
     defaultValue: 'dev',
   );
 
-  /// Base URL of the FastAPI backend deployed on Cloud Run or local.
-  static const String backendBaseUrl = String.fromEnvironment(
+  static const String _explicitBackendUrl = String.fromEnvironment(
     'BACKEND_URL',
-    defaultValue: 'http://10.0.2.2:8000',
+    defaultValue: '',
   );
+
+  /// Base URL of the FastAPI backend deployed on Cloud Run or local.
+  /// Automatically resolves between Web/Desktop (127.0.0.1) and Android Emulator (10.0.2.2).
+  static String get backendBaseUrl {
+    if (_explicitBackendUrl.isNotEmpty) {
+      return _explicitBackendUrl;
+    }
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return 'http://127.0.0.1:8000';
+    }
+    return 'http://10.0.2.2:8000';
+  }
 
   /// Public Razorpay Key ID for client-side checkout opening.
   /// (Secret key is strictly stored server-side in Secret Manager).

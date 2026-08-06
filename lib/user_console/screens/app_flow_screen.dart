@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../core/services/api_client.dart';
 import '../../theme/app_colors.dart';
@@ -174,15 +175,18 @@ class _MenuPageState extends State<MenuPage> {
     BuildContext cartContext,
     OrderPaymentMethod method,
   ) async {
-    if (cart.isEmpty || _isPlacingOrder) return;
-
-    setState(() => _isPlacingOrder = true);
-
-    final messenger = ScaffoldMessenger.of(cartContext);
-    final navigator = Navigator.of(cartContext);
-    final userId = FirebaseAuth.instance.currentUser!.uid;
+    Object? traceException;
+    StackTrace? traceStack;
 
     try {
+      if (cart.isEmpty || _isPlacingOrder) return;
+
+      setState(() => _isPlacingOrder = true);
+
+      final messenger = ScaffoldMessenger.of(cartContext);
+      final navigator = Navigator.of(cartContext);
+      final userId = FirebaseAuth.instance.currentUser!.uid;
+
       final orderId = await OrderService.placeOrderViaBackend(
         cart: cart,
         userId: userId,
@@ -198,9 +202,13 @@ class _MenuPageState extends State<MenuPage> {
           builder: (_) => OrderDetailPage(orderId: orderId),
         ),
       );
-    } catch (e) {
+    } catch (e, stack) {
+      traceException = e;
+      traceStack = stack;
+
       if (mounted) setState(() => _isPlacingOrder = false);
 
+      final messenger = ScaffoldMessenger.of(cartContext);
       messenger.showSnackBar(
         SnackBar(
           content: Text('Order failed: ${e.toString().replaceFirst('Exception: ', '')}'),
@@ -208,6 +216,14 @@ class _MenuPageState extends State<MenuPage> {
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
+      );
+    } finally {
+      debugPrint(
+        'STEP 1\n'
+        'Executed: YES\n'
+        'Timestamp: ${DateTime.now().toUtc().toIso8601String()}\n'
+        'Exception: ${traceException == null ? 'None' : '${traceException.runtimeType}: $traceException'}'
+        '${traceStack == null ? '' : '\nStackTrace:\n$traceStack'}',
       );
     }
   }
@@ -665,6 +681,7 @@ String _normalizeOrderStatus(String? status) {
       return 'delivered';
     case 'refund_pending':
       return 'refund_pending';
+    case 'refunded':
     case 'cancelled':
       return 'cancelled';
     default:

@@ -226,8 +226,11 @@ class WalletService:
             return {"status": "already_approved", "deposit_id": deposit_id}
 
     @staticmethod
-    def _create_razorpay_order_internal(amount_paise: int, receipt: str, notes: dict) -> str:
-        """Internal helper to create a Razorpay order via SDK with mock fallback in dev."""
+    def _create_razorpay_order_internal(amount_paise: int, receipt: str, notes: dict) -> tuple[str, str]:
+        """
+        Internal helper to create a Razorpay order via SDK with mock fallback in dev.
+        Returns (order_id, gateway_type) where gateway_type is 'razorpay' or 'mock'.
+        """
         if RAZORPAY_KEY_SECRET and RAZORPAY_KEY_ID and not RAZORPAY_KEY_ID.startswith("rzp_test_PLACEHOLDER"):
             try:
                 import razorpay
@@ -240,7 +243,7 @@ class WalletService:
                     "payment_capture": 1,
                 }
                 order = client.order.create(data=order_data)
-                return order["id"]
+                return order["id"], "razorpay"
             except Exception as exc:
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
@@ -248,13 +251,14 @@ class WalletService:
                 )
         else:
             # Fallback for dev / mock testing environments
-            return f"order_mock_{uuid.uuid4().hex[:12]}"
+            return f"order_mock_{uuid.uuid4().hex[:12]}", "mock"
 
     @staticmethod
     def create_deposit_order(user_uid: str, amount: float) -> CreateOrderResponse:
         """
         Creates a server-authorized Razorpay order for wallet top-up.
         Enforces min/max deposit bounds (₹20 - ₹500) and records pending deposit.
+        Automatically selects 'mock' or 'razorpay' gateway based on execution mode.
         """
         from config.firebase import db
         from google.cloud import firestore
@@ -269,20 +273,20 @@ class WalletService:
         dep_id = f"dep_{uuid.uuid4().hex[:16]}"
         receipt_id = f"rcpt_{dep_id[:10]}"
 
-        rzp_order_id = WalletService._create_razorpay_order_internal(
+        rzp_order_id, gateway = WalletService._create_razorpay_order_internal(
             amount_paise=amount_paise,
             receipt=receipt_id,
             notes={"deposit_id": dep_id, "user_uid": user_uid, "type": "wallet_deposit"},
         )
 
-        # Store pending deposit record in Firestore
+        # Store pending deposit record in Firestore with the detected gateway
         dep_ref = db.collection("pending_deposits").document(dep_id)
         dep_ref.set({
             "deposit_id": dep_id,
             "user_uid": user_uid,
             "amount": amount,
             "status": "awaiting_review",
-            "gateway": "razorpay",
+            "gateway": gateway,
             "razorpay_order_id": rzp_order_id,
             "created_at": firestore.SERVER_TIMESTAMP,
         })
@@ -349,7 +353,7 @@ class WalletService:
         order_tracking_id = f"ord_rzp_{uuid.uuid4().hex[:12]}"
         receipt_id = f"rcpt_{order_tracking_id[:10]}"
 
-        rzp_order_id = WalletService._create_razorpay_order_internal(
+        rzp_order_id, _ = WalletService._create_razorpay_order_internal(
             amount_paise=total_paise,
             receipt=receipt_id,
             notes={"user_uid": user_uid, "tracking_id": order_tracking_id, "type": "cart_checkout"},

@@ -1,3 +1,6 @@
+import os
+import threading
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
 
@@ -21,6 +24,18 @@ from .checkout_service import CheckoutService
 from .qr_service import QrService
 
 router = APIRouter()
+
+
+def _trace_backend_step(step: str, exception: str = "None") -> None:
+    print(
+        f"{step}\n"
+        f"Executed: YES\n"
+        f"Timestamp: {datetime.now(timezone.utc).isoformat()}\n"
+        f"Process: {os.getpid()}\n"
+        f"Thread: {threading.current_thread().name}\n"
+        f"Exception: {exception}",
+        flush=True,
+    )
 
 
 
@@ -109,18 +124,26 @@ def checkout(
     payload: CheckoutRequest,
     user: dict = Depends(get_current_user),
 ) -> CheckoutResponse:
-    res = CheckoutService.execute_checkout(
-        user_uid=user["uid"],
-        payload=payload,
-        actor_email=user.get("email"),
-    )
-    log_audit(
-        action="ORDER_CHECKOUT_COMPLETED",
-        actor_uid=user["uid"],
-        target=f"Orders/{res.order_id}",
-        details={"total": res.total, "payment_method": res.payment_method, "token": res.token_number},
-    )
-    return res
+    step6_exception = "None"
+    try:
+        res = CheckoutService.execute_checkout(
+            user_uid=user["uid"],
+            payload=payload,
+            actor_email=user.get("email"),
+        )
+        log_audit(
+            action="ORDER_CHECKOUT_COMPLETED",
+            actor_uid=user["uid"],
+            target=f"Orders/{res.order_id}",
+            details={"total": res.total, "payment_method": res.payment_method, "token": res.token_number},
+        )
+        _trace_backend_step("STEP 10")
+        return res
+    except Exception as exc:
+        step6_exception = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        _trace_backend_step("STEP 6", step6_exception)
 
 
 @router.post(
@@ -190,6 +213,5 @@ def cancel_order(
         details={"status": "cancelled", "total": res.total},
     )
     return res
-
 
 
