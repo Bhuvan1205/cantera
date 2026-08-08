@@ -48,10 +48,24 @@ app.*.map.json
 firebase_secret_key.json
 *-firebase-adminsdk-*.json
 lib/admin_console/*.json
+*service_account*.json
+*service-account*.json
+*serviceAccountKey*.json
+
+# Environment files
+.env
+.env.*
+*.local
 
 # Python Virtual Environment & Cache
 .venv/
 __pycache__/
+.pytest_cache/
 
+# Dependencies & Node
 node_modules/
+
+# OS / Temporary Artifacts
+Thumbs.db
+*.tmp
 
