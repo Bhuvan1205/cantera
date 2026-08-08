@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../theme/app_colors.dart';
 import '../widgets/app_bottom_nav.dart';
+import '../widgets/group_order_menu_card.dart';
+import '../models/group_order_model.dart';
 
 // ─── DATA MODEL ──────────────────────────────────────────────────────────────
 
@@ -42,6 +44,8 @@ class MenuScreen extends StatefulWidget {
     this.onOrdersTap,
     this.onQueueTap,
     this.onProfileTap,
+    this.groupOrder,
+    this.onGroupOrderTap,
     this.isLoading = false,
   });
 
@@ -55,6 +59,8 @@ class MenuScreen extends StatefulWidget {
   final VoidCallback? onOrdersTap;
   final VoidCallback? onQueueTap;
   final VoidCallback? onProfileTap;
+  final GroupOrder? groupOrder;
+  final VoidCallback? onGroupOrderTap;
   final bool isLoading;
 
   @override
@@ -139,6 +145,8 @@ class _MenuScreenState extends State<MenuScreen> {
                           padding: const EdgeInsets.fromLTRB(20, 12, 20, 110), // Padding to clear bottom nav
                           children: [
                             _buildHeadline(),
+                            const SizedBox(height: 24),
+                            GroupOrderMenuCard(group: widget.groupOrder, onTap: widget.onGroupOrderTap ?? () {}),
                             const SizedBox(height: 24),
                             _buildCategoryAndSearchRow(),
                             const SizedBox(height: 24),

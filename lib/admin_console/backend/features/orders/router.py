@@ -2,7 +2,7 @@ import os
 import threading
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query
 
 from auth.dependencies import get_current_admin, get_current_user, get_current_staff_or_admin
 from config.logging import log_audit
@@ -22,8 +22,42 @@ from .schemas import (
 from .service import OrderService
 from .checkout_service import CheckoutService
 from .qr_service import QrService
+from .group_schemas import (CreateGroupRequest, JoinGroupRequest, GroupIdRequest,
+                            GroupItemRequest, GroupCheckoutRequest, GroupOrderResponse)
+from .group_service import GroupOrderService
 
 router = APIRouter()
+
+
+@router.post('/group/create', response_model=GroupOrderResponse, status_code=201)
+def create_group_order(payload: CreateGroupRequest, user: dict = Depends(get_current_user)):
+    return GroupOrderResponse.from_firestore(GroupOrderService.create(user, payload))
+
+
+@router.post('/group/join', response_model=GroupOrderResponse)
+def join_group_order(payload: JoinGroupRequest, user: dict = Depends(get_current_user)):
+    return GroupOrderResponse.from_firestore(GroupOrderService.join(user, payload))
+
+
+@router.post('/group/leave', response_model=GroupOrderResponse)
+def leave_group_order(payload: GroupIdRequest, user: dict = Depends(get_current_user)):
+    return GroupOrderResponse.from_firestore(GroupOrderService.leave(user, payload.group_id))
+
+
+@router.post('/group/cancel', response_model=GroupOrderResponse)
+def cancel_group_order(payload: GroupIdRequest, user: dict = Depends(get_current_user)):
+    return GroupOrderResponse.from_firestore(GroupOrderService.cancel(user, payload.group_id))
+
+
+@router.post('/group/items', response_model=GroupOrderResponse)
+def change_group_items(payload: GroupItemRequest, user: dict = Depends(get_current_user)):
+    return GroupOrderResponse.from_firestore(GroupOrderService.mutate_items(user, payload))
+
+
+@router.post('/group/checkout', response_model=CheckoutResponse, status_code=201)
+def checkout_group_order(payload: GroupCheckoutRequest, user: dict = Depends(get_current_user), idempotency_key: str = Header(..., alias='Idempotency-Key')):
+    # IdempotencyMiddleware enforces/replays Idempotency-Key for this route.
+    return GroupOrderService.checkout(user, payload)
 
 
 def _trace_backend_step(step: str, exception: str = "None") -> None:

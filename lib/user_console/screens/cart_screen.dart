@@ -6,6 +6,7 @@ import '../../wallet/services/wallet_service.dart';
 import '../../wallet/widgets/payment_method_selector.dart';
 import '../utils/app_keys.dart';
 import '../widgets/app_bottom_nav.dart';
+import '../models/group_order_model.dart';
 
 // ── Data model ──────────────────────────────────────────────────────────────
 
@@ -56,6 +57,7 @@ class ReviewOrderScreen extends StatefulWidget {
     this.onHomeTap,
     this.onOrdersTap,
     this.onQueueTap,
+    this.groupOrder,
   });
 
   final List<CartItemData> cartItems;
@@ -76,6 +78,9 @@ class ReviewOrderScreen extends StatefulWidget {
   final VoidCallback? onHomeTap;
   final VoidCallback? onOrdersTap;
   final VoidCallback? onQueueTap;
+  /// When supplied, this existing review screen presents group order context
+  /// instead of suggesting an independent checkout.
+  final GroupOrder? groupOrder;
 
   @override
   State<ReviewOrderScreen> createState() => _ReviewOrderScreenState();
@@ -157,7 +162,9 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
         ),
         const SizedBox(height: 10),
         Text(
-          '${_items.length} item${_items.length == 1 ? '' : 's'} in your tray',
+          widget.groupOrder?.isActive == true
+              ? 'Group ${widget.groupOrder!.groupCode} · ${widget.groupOrder!.status}'
+              : '${_items.length} item${_items.length == 1 ? '' : 's'} in your tray',
           style: const TextStyle(
             fontSize: 15,
             color: AppColors.textMuted,

@@ -4,11 +4,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../core/services/api_client.dart';
 import '../../theme/app_colors.dart';
+import '../utils/app_keys.dart';
 
 import '../services/auth_service.dart';
 import '../services/order_service.dart';
+import '../services/group_order_service.dart';
+import '../models/group_order_model.dart';
 import '../../wallet/services/wallet_service.dart';
 import 'cart_screen.dart';
+import 'group_order_details_screen.dart';
 
 import 'menu_screen.dart';
 import 'order_detail_screen.dart';
@@ -28,6 +32,7 @@ class _MenuPageState extends State<MenuPage> {
   Map<String, Map<String, dynamic>> cart = {};
   bool _isPlacingOrder = false;
   bool isAdmin = false;
+  GroupOrder? _groupOrder;
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _menuStream;
 
   @override
@@ -47,6 +52,10 @@ class _MenuPageState extends State<MenuPage> {
   }
 
   void addToCart(MenuItem item) {
+    if (_groupOrder?.isActive == true) {
+      GroupOrderService.instance.items(_groupOrder!.groupId, 'add', item.id).then<void>((_) {}, onError: (_) {});
+      return;
+    }
     setState(() {
       if (cart.containsKey(item.id)) {
         cart[item.id]!['quantity'] += 1;
@@ -63,10 +72,15 @@ class _MenuPageState extends State<MenuPage> {
   }
 
   void removeFromCartItem(MenuItem item) {
+    if (_groupOrder?.isActive == true) {
+      GroupOrderService.instance.items(_groupOrder!.groupId, 'remove', item.id).then<void>((_) {}, onError: (_) {});
+      return;
+    }
     removeFromCart(item.id);
   }
 
   void incrementCartItem(String id) {
+    if (_groupOrder?.isActive == true) { GroupOrderService.instance.items(_groupOrder!.groupId, 'add', id).then<void>((_) {}, onError: (_) {}); return; }
     setState(() {
       if (cart.containsKey(id)) {
         cart[id]!['quantity'] += 1;
@@ -75,6 +89,7 @@ class _MenuPageState extends State<MenuPage> {
   }
 
   void removeFromCart(String id) {
+    if (_groupOrder?.isActive == true) { GroupOrderService.instance.items(_groupOrder!.groupId, 'remove', id).then<void>((_) {}, onError: (_) {}); return; }
     setState(() {
       if (!cart.containsKey(id)) return;
       if (cart[id]!['quantity'] > 1) {
@@ -98,6 +113,7 @@ class _MenuPageState extends State<MenuPage> {
   }
 
   void _openCart() {
+    if (_groupOrder?.isActive == true) { Navigator.of(context).push(MaterialPageRoute(builder: (_) => GroupOrderDetailsScreen(groupId: _groupOrder!.groupId))); return; }
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ReviewOrderScreen(
@@ -114,6 +130,27 @@ class _MenuPageState extends State<MenuPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _openGroupOrder() async {
+    if (_groupOrder?.isActive == true) {
+      await Navigator.of(context).push(MaterialPageRoute(builder: (_) => GroupOrderDetailsScreen(groupId: _groupOrder!.groupId)));
+      return;
+    }
+    final code = TextEditingController();
+    final action = await showDialog<String>(context: context, builder: (dialogContext) => AlertDialog(
+      title: const Text('Group Order'),
+      content: TextField(key: AppKeys.groupOrderJoinField, controller: code, textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(labelText: 'Group code (or leave blank to start)')),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, 'create'), child: const Text('Start')), ElevatedButton(onPressed: () => Navigator.pop(dialogContext, 'join'), child: const Text('Join'))],
+    ));
+    if (action == null) return;
+    try {
+      final migration = cart.entries.map((e) => {'menu_item_id': e.key, 'quantity': e.value['quantity']}).toList();
+      final group = action == 'create' ? await GroupOrderService.instance.create(items: migration) : await GroupOrderService.instance.join(code.text, items: migration);
+      if (!mounted) return;
+      setState(() { _groupOrder = group; cart.clear(); });
+      await Navigator.of(context).push(MaterialPageRoute(builder: (_) => GroupOrderDetailsScreen(groupId: group.groupId)));
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Group order failed: $e'), backgroundColor: AppColors.error)); }
   }
 
   void _openOrders() {
@@ -441,6 +478,8 @@ class _MenuPageState extends State<MenuPage> {
           onOrdersTap: _openOrders,
           onQueueTap: _openQueue,
           onProfileTap: _openProfile,
+          groupOrder: _groupOrder,
+          onGroupOrderTap: _openGroupOrder,
         );
       },
     );

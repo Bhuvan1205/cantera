@@ -16,6 +16,11 @@ ALLOWED_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",")]
 # ── Environment ───────────────────────────────────────────────────────────────
 ENV: str = os.getenv("ENV", "dev")
 
+# Business-day close used by order features. Defaults preserve the existing
+# daily operational-maintenance boundary (18:59 UTC) without changing it.
+BUSINESS_DAY_CLOSE_UTC_HOUR: int = int(os.getenv("BUSINESS_DAY_CLOSE_UTC_HOUR", "18"))
+BUSINESS_DAY_CLOSE_UTC_MINUTE: int = int(os.getenv("BUSINESS_DAY_CLOSE_UTC_MINUTE", "59"))
+
 # ── Razorpay ──────────────────────────────────────────────────────────────────
 # RAZORPAY_KEY_SECRET is mounted from Google Cloud Secret Manager in production.
 # RAZORPAY_KEY_ID is public and provided via environment variable.
