@@ -75,6 +75,26 @@ export default function Sidebar() {
             </NavLink>
           </div>
         </div>
+
+        {/* FoodPulse Section */}
+        <div className="space-y-xs pt-xs">
+          <div className="flex items-center gap-md px-md py-sm text-on-surface-variant font-body-md">
+            <span className="material-symbols-outlined text-[20px] text-purple-400">poll</span>
+            <span>FoodPulse</span>
+          </div>
+
+          <div className="pl-xl flex flex-col gap-xs">
+            <NavLink to="/foodpulse" end className={subNavLinkClass}>
+              Dashboard
+            </NavLink>
+            <NavLink to="/foodpulse/suggestions" className={subNavLinkClass}>
+              Student Suggestions
+            </NavLink>
+            <NavLink to="/foodpulse/polls" className={subNavLinkClass}>
+              Community Polls
+            </NavLink>
+          </div>
+        </div>
       </nav>
 
       <div className="p-md border-t border-outline/20">

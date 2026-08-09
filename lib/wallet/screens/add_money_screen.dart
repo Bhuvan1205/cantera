@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
@@ -48,6 +49,7 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
   }
 
   void _initRazorpay() {
+    if (kIsWeb) return; // Skip on web to prevent MissingPluginException
     _razorpay = Razorpay();
     _razorpay!.on(
       Razorpay.EVENT_PAYMENT_SUCCESS,
@@ -376,18 +378,20 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
               onTap: () => setState(() => _selectedGateway = PaymentGateway.mock),
             ),
             const SizedBox(height: 10),
-            _GatewayOption(
-              label: 'Razorpay',
-              subtitle: 'UPI · Card · Net Banking',
-              icon: Icons.payment_rounded,
-              color: AppColors.primary,
-              bgColor: AppColors.primary.withValues(alpha: 0.08),
-              isSelected: _selectedGateway == PaymentGateway.razorpay,
-              onTap: () => setState(
-                () => _selectedGateway = PaymentGateway.razorpay,
+            if (!kIsWeb) ...[
+              _GatewayOption(
+                label: 'Razorpay',
+                subtitle: 'UPI · Card · Net Banking',
+                icon: Icons.payment_rounded,
+                color: AppColors.primary,
+                bgColor: AppColors.primary.withValues(alpha: 0.08),
+                isSelected: _selectedGateway == PaymentGateway.razorpay,
+                onTap: () => setState(
+                  () => _selectedGateway = PaymentGateway.razorpay,
+                ),
               ),
-            ),
-            const SizedBox(height: 32),
+              const SizedBox(height: 32),
+            ],
 
             // ── Error banner ─────────────────────────────────────────────────
             if (_errorMessage != null) ...[

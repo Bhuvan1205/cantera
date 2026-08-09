@@ -94,7 +94,7 @@ class StaffInventoryCard extends StatelessWidget {
                       ? Image.network(
                           imageUrl,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => Container(
+                          errorBuilder: (context, error, stackTrace) => Container(
                             color: const Color(0xFFF3EDE4),
                             child: const Icon(Icons.broken_image_outlined, size: 24, color: AppColors.textMuted),
                           ),
@@ -102,7 +102,7 @@ class StaffInventoryCard extends StatelessWidget {
                       : Image.asset(
                           imageUrl,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => Container(
+                          errorBuilder: (context, error, stackTrace) => Container(
                             color: const Color(0xFFF3EDE4),
                             child: const Icon(Icons.broken_image_outlined, size: 24, color: AppColors.textMuted),
                           ),
@@ -278,7 +278,7 @@ class _AvailabilityToggle extends StatelessWidget {
           child: Switch(
             value: isAvailable,
             onChanged: onChanged,
-            activeThumbColor: AppColors.success,
+            activeColor: AppColors.success,
             activeTrackColor: AppColors.success.withValues(alpha: 0.25),
             inactiveThumbColor: AppColors.error,
             inactiveTrackColor: AppColors.error.withValues(alpha: 0.18),

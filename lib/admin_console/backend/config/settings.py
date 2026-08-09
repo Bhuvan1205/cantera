@@ -11,7 +11,7 @@ PORT: int = int(os.getenv("PORT", 8000))
 # ── CORS ─────────────────────────────────────────────────────────────────────
 # Comma-separated list of allowed origins.
 # Streamlit runs on 8501 by default; add your deployed frontend URL in .env.
-_raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:8501")
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:8501,http://localhost:3000,http://localhost:5173")
 ALLOWED_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",")]
 
 # ── Razorpay ──────────────────────────────────────────────────────────────────

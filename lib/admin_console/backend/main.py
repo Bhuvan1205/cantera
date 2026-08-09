@@ -64,9 +64,12 @@ from features.users.router import router as users_router
 from features.inventory.router import router as inventory_router
 from features.orders.router import router as orders_router
 from features.wallet.router import router as wallet_router
+from features.foodpulse.router import router as foodpulse_router
 
 app.include_router(auth_router,      prefix="/api/auth",      tags=["Auth"])
 app.include_router(users_router,     prefix="/api/users",     tags=["Users"])
 app.include_router(inventory_router, prefix="/api/inventory", tags=["Inventory"])
 app.include_router(orders_router,    prefix="/api/orders",    tags=["Orders"])
 app.include_router(wallet_router,    prefix="/api/wallet",    tags=["Wallet"])
+app.include_router(foodpulse_router, prefix="/foodpulse",     tags=["FoodPulse"])
+

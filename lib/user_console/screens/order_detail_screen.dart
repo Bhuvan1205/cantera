@@ -225,7 +225,7 @@ class _OrderSummaryCard extends StatelessWidget {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: items.length,
-            separatorBuilder: (_, _) => Container(
+            separatorBuilder: (_, __) => Container(
               margin: const EdgeInsets.symmetric(vertical: 12),
               height: 1,
               color: AppColors.border,
