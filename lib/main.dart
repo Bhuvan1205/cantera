@@ -1,16 +1,17 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import 'config/app_config.dart';
 import 'staff_console/screens/admin_dashboard_screen.dart';
 import 'firebase_options.dart';
 import 'user_console/screens/login_screen.dart';
 import 'user_console/screens/main_screen.dart';
+import 'user_console/services/auth_service.dart';
 import 'theme/app_theme.dart';
-import 'package:flutter/foundation.dart';
-import 'config/app_config.dart';
 
 class AppScrollBehavior extends MaterialScrollBehavior {
   @override
@@ -23,6 +24,13 @@ class AppScrollBehavior extends MaterialScrollBehavior {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  debugPrint('========================================');
+  debugPrint('[Startup] kIsWeb: $kIsWeb');
+  debugPrint('[Startup] defaultTargetPlatform: $defaultTargetPlatform');
+  debugPrint('[Startup] AppConfig.backendBaseUrl: ${AppConfig.backendBaseUrl}');
+  debugPrint('========================================');
+
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
@@ -84,12 +92,9 @@ class MyApp extends StatelessWidget {
           );
         }
 
-        // ── Logged in → fetch role then route ───────────────────────────────
-        return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          future: FirebaseFirestore.instance
-              .collection('Users')
-              .doc(user.uid)
-              .get(),
+        // ── Logged in → fetch role then route (Single Source of Truth) ──────
+        return FutureBuilder<bool>(
+          future: AuthService.isCurrentUserAdmin(),
           builder: (context, roleSnapshot) {
             // Still fetching role → show spinner
             if (roleSnapshot.connectionState == ConnectionState.waiting) {
@@ -108,15 +113,16 @@ class MyApp extends StatelessWidget {
               }
             }
 
-            final data = roleSnapshot.data?.data();
-            final isAdmin = (data?['isAdmin'] as bool?) ?? false;
+            final isStaffOrAdmin = roleSnapshot.data ?? false;
 
             return MaterialApp(
-              key: ValueKey(user.uid),
+              key: ValueKey('${user.uid}_$isStaffOrAdmin'),
               debugShowCheckedModeBanner: false,
               scrollBehavior: AppScrollBehavior(),
               theme: AppTheme.light,
-              home: isAdmin ? const AdminDashboardScreen() : const MainScreen(),
+              home: isStaffOrAdmin
+                  ? const AdminDashboardScreen()
+                  : const MainScreen(),
             );
           },
         );

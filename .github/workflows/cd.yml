@@ -1,0 +1,93 @@
+name: Continuous Deployment (CD) - Cloud Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+  push:
+    tags:
+      - 'v*'
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID || 'canteen-app-e1c8d' }}
+  REGION: asia-south1
+  SERVICE_NAME: canteen-api
+  WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+  WIF_SERVICE_ACCOUNT: ${{ secrets.GCP_WIF_SA }}
+
+jobs:
+  validate-pre-deploy:
+    name: Pre-Deployment Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          pip install -r lib/admin_console/backend/requirements.txt
+          pip install pytest pytest-asyncio httpx
+
+      - name: Run Pytest Suite
+        run: pytest lib/admin_console/backend/tests/ -v
+
+  deploy-cloud-run:
+    name: Build & Deploy to Cloud Run
+    needs: validate-pre-deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud via Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Authorize Docker to Artifact Registry
+        run: |
+          gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+
+      - name: Build & Push Container Image
+        run: |
+          IMAGE_TAG="asia-south1-docker.pkg.dev/${{ env.PROJECT_ID }}/canteen-repo/${{ env.SERVICE_NAME }}:${{ github.sha }}"
+          docker build -t "$IMAGE_TAG" -f lib/admin_console/backend/Dockerfile lib/admin_console/backend
+          docker push "$IMAGE_TAG"
+
+      - name: Deploy to Cloud Run
+        run: |
+          IMAGE_TAG="asia-south1-docker.pkg.dev/${{ env.PROJECT_ID }}/canteen-repo/${{ env.SERVICE_NAME }}:${{ github.sha }}"
+          DEPLOY_ENV="${{ github.event.inputs.environment || 'production' }}"
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image "$IMAGE_TAG" \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --service-account canteen-api-sa@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
+            --set-secrets "RAZORPAY_KEY_SECRET=projects/${{ env.PROJECT_ID }}/secrets/RAZORPAY_KEY_SECRET:latest" \
+            --set-env-vars "GCP_PROJECT_ID=${{ env.PROJECT_ID }},APP_ENV=$DEPLOY_ENV,RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}" \
+            --allow-unauthenticated \
+            --timeout 300 \
+            --concurrency 80 \
+            --min-instances 0 \
+            --max-instances 10

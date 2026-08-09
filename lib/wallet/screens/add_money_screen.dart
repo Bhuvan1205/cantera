@@ -1,11 +1,10 @@
-import 'dart:math';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 
 import '../../../theme/app_colors.dart';
+import '../../config/app_config.dart';
 import '../services/wallet_service.dart';
 import '../utils/wallet_formatters.dart';
 import '../widgets/mock_payment_sheet.dart';
@@ -82,25 +81,39 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
 
   // ── Payment handlers ─────────────────────────────────────────────────────────
 
+  String? _currentDepositId;
+
   Future<void> _initiatePayment() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     if (_isProcessing) return;
 
     final amount = _parsedAmount;
 
-    if (_selectedGateway == PaymentGateway.mock) {
-      await _handleMockPayment(amount);
-    } else {
-      _handleRazorpayPayment(amount);
-    }
-  }
-
-  Future<void> _handleMockPayment(double amount) async {
     setState(() {
       _isProcessing = true;
       _errorMessage = null;
     });
 
+    try {
+      final orderRes = await WalletService.createDepositOrder(amount);
+      _currentDepositId = orderRes['deposit_id'] as String?;
+      final rzpOrderId = orderRes['razorpay_order_id'] as String?;
+
+      if (_selectedGateway == PaymentGateway.mock) {
+        await _handleMockPayment(amount);
+      } else {
+        _handleRazorpayPayment(amount, rzpOrderId);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isProcessing = false;
+        _errorMessage = e.toString().replaceAll('Exception: ', '');
+      });
+    }
+  }
+
+  Future<void> _handleMockPayment(double amount) async {
     final success = await MockPaymentSheet.show(context, amount: amount);
     if (!mounted) return;
 
@@ -112,27 +125,16 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
       return;
     }
 
-    // Generate a mock payment ID.
-    final mockPaymentId = _generateMockPaymentId();
-
-    await _submitDeposit(
-      amount: amount,
-      paymentId: mockPaymentId,
-      gateway: PaymentGateway.mock,
-    );
+    await _submitDeposit(amount);
   }
 
-  void _handleRazorpayPayment(double amount) {
-    setState(() {
-      _isProcessing = true;
-      _errorMessage = null;
-    });
-
+  void _handleRazorpayPayment(double amount, String? rzpOrderId) {
     final options = {
-      'key': 'rzp_test_PLACEHOLDER', // Replace with live key before release
-      'amount': (amount * 100).toInt(), // Razorpay expects paise
+      'key': AppConfig.razorpayKeyId,
+      'amount': (amount * 100).toInt(),
       'name': 'Cantora',
       'description': 'Wallet Top-up',
+      'order_id': rzpOrderId,
       'prefill': <String, String>{},
       'theme': {'color': '#0F382B'},
     };
@@ -149,13 +151,7 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
 
   void _handleRazorpaySuccess(PaymentSuccessResponse response) async {
     final amount = _parsedAmount;
-    await _submitDeposit(
-      amount: amount,
-      paymentId: response.paymentId ?? 'unknown',
-      razorpayOrderId: response.orderId,
-      razorpaySignature: response.signature,
-      gateway: PaymentGateway.razorpay,
-    );
+    await _submitDeposit(amount);
   }
 
   void _handleRazorpayError(PaymentFailureResponse response) {
@@ -175,24 +171,19 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
     });
   }
 
-  Future<void> _submitDeposit({
-    required double amount,
-    required String paymentId,
-    String? razorpayOrderId,
-    String? razorpaySignature,
-    required PaymentGateway gateway,
-  }) async {
+  Future<void> _submitDeposit(double amount) async {
+    final depId = _currentDepositId;
+    if (depId == null) {
+      setState(() {
+        _isProcessing = false;
+        _errorMessage = 'Missing deposit record. Please try again.';
+      });
+      return;
+    }
+
     try {
-      final depositId = await WalletService.submitPendingDeposit(
-        userId: widget.userId,
-        amount: amount,
-        razorpayPaymentId: paymentId,
-        razorpayOrderId: razorpayOrderId,
-        razorpaySignature: razorpaySignature,
-        gateway: gateway,
-      );
       // Send to backend for signature verification and wallet credit.
-      await WalletService.verifyDeposit(depositId);
+      await WalletService.verifyDeposit(depId);
       if (!mounted) return;
       _showSuccessAndPop(amount);
     } catch (e) {
@@ -200,7 +191,7 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
       if (!mounted) return;
       setState(() {
         _isProcessing = false;
-        _errorMessage = 'Failed to record payment. Contact support with ID: $paymentId';
+        _errorMessage = 'Failed to verify payment. Contact support with deposit ID: $depId';
       });
     }
   }
@@ -227,14 +218,6 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
       ),
     );
     Navigator.maybePop(context);
-  }
-
-  String _generateMockPaymentId() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    final rand = Random();
-    final suffix =
-        List.generate(14, (_) => chars[rand.nextInt(chars.length)]).join();
-    return 'pay_MOCK_$suffix';
   }
 
   // ── Build ────────────────────────────────────────────────────────────────────

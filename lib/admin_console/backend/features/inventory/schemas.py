@@ -2,6 +2,32 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 
+AVAILABILITY_ONLY_CATEGORIES = {"mess", "continental"}
+AVAILABILITY_ONLY_SUBCATEGORIES = {"hot"}
+
+
+def is_quantified_item(data: dict) -> bool:
+    """
+    Authoritative backend classification rule for inventory tracking.
+    An item is availability-only (non-quantified) if:
+      1. Explicit inventory_type == 'toggle' or is_quantifiable is False, or
+      2. stock field is absent/None (as defined in schema: None means unlimited/non-trackable), or
+      3. Category or subCategory is inherently availability-driven (mess, continental, hot beverages).
+    Otherwise, the item is quantified and subject to numeric stock tracking.
+    """
+    if data.get("inventory_type") == "toggle" or data.get("is_quantifiable") is False:
+        return False
+    if data.get("inventory_type") == "quantified" or data.get("is_quantifiable") is True:
+        return True
+    category = str(data.get("category") or "").lower().strip()
+    sub_category = str(data.get("subCategory") or data.get("sub_category") or "").lower().strip()
+    if category in AVAILABILITY_ONLY_CATEGORIES or sub_category in AVAILABILITY_ONLY_SUBCATEGORIES:
+        return False
+    if data.get("stock") is None:
+        return False
+    return True
+
+
 class MenuItem(BaseModel):
     """
     A single item from the Menu collection, as stored in Firestore.
@@ -14,6 +40,15 @@ class MenuItem(BaseModel):
     is_available: bool = True
     image_url: Optional[str] = None
     description: Optional[str] = None
+    sub_category: Optional[str] = None
+
+    @property
+    def is_quantified(self) -> bool:
+        return is_quantified_item({
+            "category": self.category,
+            "subCategory": self.sub_category,
+            "stock": self.stock,
+        })
 
     @classmethod
     def from_firestore(cls, doc_id: str, data: dict) -> "MenuItem":
@@ -26,6 +61,7 @@ class MenuItem(BaseModel):
             is_available=data.get("isAvailable", data.get("is_available", True)),
             image_url=data.get("imageUrl") or data.get("image_url"),
             description=data.get("description"),
+            sub_category=data.get("subCategory") or data.get("sub_category"),
         )
 
 

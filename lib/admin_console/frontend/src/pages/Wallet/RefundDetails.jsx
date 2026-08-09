@@ -6,7 +6,8 @@ import { Alert, LoadingSpinner } from '../../components/common/Feedback';
 import StatusBadge from '../../components/common/StatusBadge';
 
 export default function RefundDetails() {
-  const { refundId } = useParams();
+  const { id } = useParams();
+  const refundId = id;
 
   const [refund, setRefund] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -18,26 +19,42 @@ export default function RefundDetails() {
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectForm, setShowRejectForm] = useState(false);
 
-  const fetchRefund = async () => {
+  const fetchRefund = async (targetId) => {
+    const queryId = targetId || refundId;
+    if (!queryId) {
+      setError('Invalid or missing refund request ID.');
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     try {
-      const data = await getRefund(refundId);
+      const data = await getRefund(queryId);
       setRefund(data);
     } catch (err) {
-      setError(getErrorMessage(err, `Failed to load refund request: ${refundId}`));
+      setError(getErrorMessage(err, `Failed to load refund request: ${queryId}`));
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    if (refundId) {
-      fetchRefund();
+    if (!refundId) {
+      setError('Invalid or missing refund request ID.');
+      setIsLoading(false);
+      return;
     }
+    fetchRefund(refundId);
   }, [refundId]);
 
   const handleUpdateStatus = async (targetStatus, reason = null) => {
+    const activeId = refund?.request_id || refund?.refund_id || refundId;
+    if (!activeId) {
+      setError('Cannot update status: missing refund request ID.');
+      return;
+    }
+
     setIsUpdating(true);
     setError(null);
     setSuccessMsg(null);
@@ -47,7 +64,7 @@ export default function RefundDetails() {
         payload.reason = reason.trim();
       }
 
-      const updated = await updateRefundStatus(refundId, payload);
+      const updated = await updateRefundStatus(activeId, payload);
       setRefund(updated);
       setSuccessMsg(`Refund successfully updated to status: "${targetStatus}".`);
       setShowRejectForm(false);
@@ -62,7 +79,7 @@ export default function RefundDetails() {
   if (isLoading) {
     return (
       <div className="p-xl max-w-7xl mx-auto">
-        <LoadingSpinner text={`Loading refund request ${refundId}...`} />
+        <LoadingSpinner text={`Loading refund request ${refundId || ''}...`} />
       </div>
     );
   }

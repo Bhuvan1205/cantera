@@ -11,15 +11,25 @@ enum WalletTransactionType {
   reversal;   // Reversal of a failed operation
 
   static WalletTransactionType fromString(String? value) {
-    switch (value) {
-      case 'deposit': return WalletTransactionType.deposit;
-      case 'purchase': return WalletTransactionType.purchase;
-      case 'refund': return WalletTransactionType.refund;
-      case 'adjustment': return WalletTransactionType.adjustment;
-      case 'bonus': return WalletTransactionType.bonus;
-      case 'cashback': return WalletTransactionType.cashback;
-      case 'reversal': return WalletTransactionType.reversal;
-      default: return WalletTransactionType.deposit;
+    switch (value?.toLowerCase().trim()) {
+      case 'deposit':
+      case 'credit':
+        return WalletTransactionType.deposit;
+      case 'purchase':
+      case 'debit':
+        return WalletTransactionType.purchase;
+      case 'refund':
+        return WalletTransactionType.refund;
+      case 'adjustment':
+        return WalletTransactionType.adjustment;
+      case 'bonus':
+        return WalletTransactionType.bonus;
+      case 'cashback':
+        return WalletTransactionType.cashback;
+      case 'reversal':
+        return WalletTransactionType.reversal;
+      default:
+        return WalletTransactionType.deposit;
     }
   }
 

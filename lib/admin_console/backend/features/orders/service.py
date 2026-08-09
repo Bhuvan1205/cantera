@@ -74,3 +74,8 @@ class OrderService:
                 detail=f"Order '{order_id}' not found.",
             )
         return updated
+
+    @staticmethod
+    def cancel_order(order_id: str, caller_uid: str, is_admin: bool = False) -> OrderDetail:
+        return OrderRepository.cancel_order(order_id=order_id, caller_uid=caller_uid, is_admin=is_admin)
+

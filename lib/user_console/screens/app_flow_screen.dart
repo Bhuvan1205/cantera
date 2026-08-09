@@ -2,12 +2,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../../core/services/api_client.dart';
 import '../../theme/app_colors.dart';
 
-import '../../wallet/services/wallet_service.dart';
 import '../services/auth_service.dart';
 import '../services/order_service.dart';
+import '../../wallet/services/wallet_service.dart';
 import 'cart_screen.dart';
+
 import 'menu_screen.dart';
 import 'order_detail_screen.dart';
 import 'order_history_screen.dart';
@@ -175,63 +177,28 @@ class _MenuPageState extends State<MenuPage> {
     return await OrderService.handleQrScan(scannedValue);
   }
 
-  /// Delegates order creation to [OrderService.placeOrder].
-  ///
-  /// If [method] is [OrderPaymentMethod.wallet], credits are deducted
-  /// atomically via a Firestore Transaction before order creation.
-  /// If the order creation subsequently fails, a compensating refund
-  /// is created automatically.
+  /// Delegates order creation to [OrderService.placeOrderViaBackend].
+  /// The FastAPI backend atomically handles stock reservation, price verification,
+  /// wallet debit, token generation, and order creation.
   Future<void> placeOrder(
     BuildContext cartContext,
     OrderPaymentMethod method,
   ) async {
-    if (cart.isEmpty || _isPlacingOrder) return;
+    Object? traceException;
+    StackTrace? traceStack;
 
-    setState(() => _isPlacingOrder = true);
-
-    final messenger = ScaffoldMessenger.of(cartContext);
-    final navigator = Navigator.of(cartContext);
-    final userId = FirebaseAuth.instance.currentUser!.uid;
-
-    // Pre-generate the orderId client-side so we can link it in the security rules
-    final String preGeneratedOrderId = FirebaseFirestore.instance.collection('Orders').doc().id;
-
-    // Calculate total amount for wallet deduction.
-    final double orderTotal = cart.values
-        .fold(0.0, (acc, item) => acc + (item['price'] as num) * (item['quantity'] as num));
-
-    // ── Wallet purchase path ──────────────────────────────────────────────────
-    if (method == OrderPaymentMethod.wallet) {
-      try {
-        // Deduct wallet balance BEFORE placing the order.
-        await WalletService.purchaseWithWallet(
-          userId: userId,
-          amount: orderTotal,
-          orderId: preGeneratedOrderId,
-          description: 'Order payment (${cart.length} item${cart.length == 1 ? '' : 's'})',
-        );
-      } catch (e) {
-        if (mounted) setState(() => _isPlacingOrder = false);
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(
-              'Wallet payment failed: ${e.toString().replaceFirst('Exception: ', '')}',
-            ),
-            backgroundColor: AppColors.error,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        );
-        return;
-      }
-    }
-
-    // ── Place the order ───────────────────────────────────────────────────────
     try {
-      final orderId = await OrderService.placeOrder(
+      if (cart.isEmpty || _isPlacingOrder) return;
+
+      setState(() => _isPlacingOrder = true);
+
+      final messenger = ScaffoldMessenger.of(cartContext);
+      final navigator = Navigator.of(cartContext);
+      final userId = FirebaseAuth.instance.currentUser!.uid;
+
+      final orderId = await OrderService.placeOrderViaBackend(
         cart: cart,
         userId: userId,
-        preGeneratedOrderId: preGeneratedOrderId,
         paymentMethod: method == OrderPaymentMethod.wallet ? 'wallet' : 'direct',
       );
 
@@ -244,25 +211,13 @@ class _MenuPageState extends State<MenuPage> {
           builder: (_) => OrderDetailPage(orderId: orderId),
         ),
       );
-    } catch (e) {
+    } catch (e, stack) {
+      traceException = e;
+      traceStack = stack;
+
       if (mounted) setState(() => _isPlacingOrder = false);
 
-      // ── Compensating refund for wallet payments ────────────────────────────
-      if (method == OrderPaymentMethod.wallet) {
-        // Order failed after wallet was debited — create a refund request
-        // automatically so admin can credit back the wallet.
-        try {
-          await WalletService.createAdjustment(
-            userId: userId,
-            amount: orderTotal,
-            description: 'Auto-refund: order creation failed',
-            adminUid: 'system',
-          );
-        } catch (_) {
-          // Best-effort; admin can manually adjust if this also fails.
-        }
-      }
-
+      final messenger = ScaffoldMessenger.of(cartContext);
       messenger.showSnackBar(
         SnackBar(
           content: Text('Order failed: ${e.toString().replaceFirst('Exception: ', '')}'),
@@ -271,10 +226,19 @@ class _MenuPageState extends State<MenuPage> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       );
+    } finally {
+      debugPrint(
+        'STEP 1\n'
+        'Executed: YES\n'
+        'Timestamp: ${DateTime.now().toUtc().toIso8601String()}\n'
+        'Exception: ${traceException == null ? 'None' : '${traceException.runtimeType}: $traceException'}'
+        '${traceStack == null ? '' : '\nStackTrace:\n$traceStack'}',
+      );
     }
   }
 
   List<MenuItem> _toMenuItems(
+
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
     return docs.map((doc) {
@@ -507,10 +471,11 @@ class _MenuPageState extends State<MenuPage> {
 Future<void> markAsDelivered(String orderId, String currentStatus) async {
   if (currentStatus.toLowerCase() == 'delivered') return;
 
-  await FirebaseFirestore.instance.collection('Orders').doc(orderId).update({
+  await ApiClient.instance.patch('/api/orders/$orderId/status', body: {
     'status': 'delivered',
   });
 }
+
 
 class OrderHistoryPage extends StatefulWidget {
   const OrderHistoryPage({
@@ -646,9 +611,8 @@ class OrderDetailPage extends StatelessWidget {
             .map((e) => _toOrderItemData(e as Map<String, dynamic>))
             .toList();
 
-        final String userIdVal = data['userId'] as String? ?? '';
-        final double totalVal = (data['total'] as num).toDouble();
         final String orderStatus = (data['status'] as String? ?? 'placed');
+
         final bool isRefundPendingVal = orderStatus.toLowerCase() == 'refund_pending';
         final shortId = orderId.length >= 4
             ? orderId.substring(0, 4).toUpperCase()
@@ -664,12 +628,10 @@ class OrderDetailPage extends StatelessWidget {
           onHomeTap: () => Navigator.of(context).popUntil((route) => route.isFirst),
           isRefundPending: isRefundPendingVal,
           onRefundRequest: () async {
-            await WalletService.requestRefund(
-              userId: userIdVal,
-              orderId: orderId,
-              amount: totalVal,
-              reason: 'User cancelled placed order',
-            );
+            await ApiClient.instance.post('/api/wallet/refunds/request', body: {
+              'order_id': orderId,
+              'reason': 'User cancelled placed order',
+            });
           },
         );
       },
@@ -760,6 +722,7 @@ String _normalizeOrderStatus(String? status) {
       return 'delivered';
     case 'refund_pending':
       return 'refund_pending';
+    case 'refunded':
     case 'cancelled':
       return 'cancelled';
     default:

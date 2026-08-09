@@ -141,3 +141,69 @@ class UpdateOrderStatusRequest(BaseModel):
         ...,
         description="Target status: delivered | refund_pending",
     )
+
+
+class CheckoutCartItem(BaseModel):
+    """Item submitted for checkout orchestration."""
+    menu_item_id: str = Field(..., description="Firestore Menu document ID")
+    quantity: int = Field(..., ge=1, le=50, description="Quantity")
+
+
+class CheckoutRequest(BaseModel):
+    """
+    Payload for POST /api/orders/checkout.
+    Client submits ONLY menu item IDs and quantities. Prices and stock checks are
+    performed strictly server-side.
+    """
+    items: list[CheckoutCartItem] = Field(..., min_length=1, max_length=50)
+    payment_method: str = Field("wallet", description="wallet | direct | cash")
+    user_name: Optional[str] = None
+
+
+class CheckoutTokenDetail(BaseModel):
+    """Token details created for a specific counter."""
+    counter: str
+    token_number: int
+    qr_valid: bool
+    otp: Optional[str] = None
+
+
+class CheckoutResponse(BaseModel):
+    """Response returned upon successful atomic checkout."""
+    order_id: str
+    total: int
+    token_number: int
+    status: str
+    payment_method: str
+    tokens: list[CheckoutTokenDetail]
+
+
+class ScanQrRequest(BaseModel):
+    """Payload for POST /api/orders/scan-qr"""
+    qr_payload: str = Field(..., min_length=1, description="Scanned QR code content")
+
+
+class ScanQrResponse(BaseModel):
+    """Response for QR scan"""
+    order_id: str
+    counter: str
+    status: str
+    requires_otp: bool
+    message: str
+
+
+class VerifyOtpRequest(BaseModel):
+    """Payload for POST /api/orders/verify-otp"""
+    order_id: str
+    counter: str
+    otp: str = Field(..., min_length=4, max_length=6)
+
+
+class VerifyOtpResponse(BaseModel):
+    """Response for OTP verification"""
+    order_id: str
+    counter: str
+    status: str
+    message: str
+
+

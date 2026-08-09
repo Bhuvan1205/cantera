@@ -4,15 +4,23 @@ from fastapi import APIRouter, Depends, Query
 from auth.dependencies import get_current_admin, get_current_user
 from config.logging import log_audit
 from .schemas import (
+    CartItemRequest,
+    CreateCartOrderRequest,
+    CreateDepositOrderRequest,
+    CreateOrderResponse,
     PendingDepositItem,
     RefundRequestItem,
     UpdateRefundStatusRequest,
     UserWalletInvestigation,
     VerifyDepositRequest,
+    CreateRefundRequestPayload,
+    CreateAdjustmentRequest,
 )
 from .service import WalletService
 
+
 router = APIRouter()
+
 
 
 @router.get(
@@ -51,6 +59,52 @@ def verify_deposit(
         actor_uid=user["uid"],
         target=f"pending_deposits/{payload.deposit_id}",
         details={"status": res.get("status"), "credited_amount": res.get("credited_amount")},
+    )
+    return res
+
+
+@router.post(
+    "/orders/deposit",
+    response_model=CreateOrderResponse,
+    summary="Create server-side Razorpay order for wallet top-up",
+    description="Validates deposit amount constraints and creates a server-authorized Razorpay order.",
+)
+def create_deposit_order(
+    payload: CreateDepositOrderRequest,
+    user: dict = Depends(get_current_user),
+) -> CreateOrderResponse:
+    res = WalletService.create_deposit_order(
+        user_uid=user["uid"],
+        amount=payload.amount,
+    )
+    log_audit(
+        action="WALLET_DEPOSIT_ORDER_CREATED",
+        actor_uid=user["uid"],
+        target=f"pending_deposits/{res.deposit_id}",
+        details={"amount": payload.amount, "razorpay_order_id": res.razorpay_order_id},
+    )
+    return res
+
+
+@router.post(
+    "/orders/checkout",
+    response_model=CreateOrderResponse,
+    summary="Create server-side Razorpay order for cart checkout",
+    description="Resolves item prices securely from Firestore Menu and generates a server-authorized Razorpay order.",
+)
+def create_cart_order(
+    payload: CreateCartOrderRequest,
+    user: dict = Depends(get_current_user),
+) -> CreateOrderResponse:
+    res = WalletService.create_cart_order(
+        user_uid=user["uid"],
+        items=payload.items,
+    )
+    log_audit(
+        action="CART_PAYMENT_ORDER_CREATED",
+        actor_uid=user["uid"],
+        target=f"razorpay_orders/{res.razorpay_order_id}",
+        details={"amount_rupees": res.amount_rupees, "item_count": len(payload.items)},
     )
     return res
 
@@ -109,6 +163,55 @@ def update_refund_status(
     return res
 
 
+@router.post(
+    "/refunds/request",
+    response_model=RefundRequestItem,
+    status_code=201,
+    summary="User-initiated refund request",
+    description="Submits a refund request for an order in 'placed' status. Amount is resolved securely from the server-side order document.",
+)
+def create_refund_request(
+    payload: CreateRefundRequestPayload,
+    user: dict = Depends(get_current_user),
+) -> RefundRequestItem:
+    res = WalletService.create_refund_request(
+        user_uid=user["uid"],
+        order_id=payload.order_id,
+        reason=payload.reason,
+    )
+    log_audit(
+        action="WALLET_REFUND_REQUESTED",
+        actor_uid=user["uid"],
+        target=f"refund_requests/{res.request_id}",
+        details={"order_id": payload.order_id, "amount": res.amount},
+    )
+    return res
+
+
+@router.post(
+    "/adjustments",
+    summary="Admin manual wallet adjustment",
+    description="Executes an atomic credit or debit adjustment on a user's wallet with ledger audit record.",
+)
+def create_manual_adjustment(
+    payload: CreateAdjustmentRequest,
+    admin: dict = Depends(get_current_admin),
+) -> dict:
+    res = WalletService.create_manual_adjustment(
+        user_uid=payload.user_uid,
+        amount=payload.amount,
+        description=payload.description,
+        admin_uid=admin["uid"],
+    )
+    log_audit(
+        action="WALLET_ADJUSTMENT_EXECUTED",
+        actor_uid=admin["uid"],
+        target=f"wallets/{payload.user_uid}",
+        details={"amount": payload.amount, "description": payload.description},
+    )
+    return res
+
+
 @router.get(
     "/{uid}",
     response_model=UserWalletInvestigation,
@@ -120,3 +223,4 @@ def get_wallet_investigation(
     _admin: dict = Depends(get_current_admin),
 ) -> UserWalletInvestigation:
     return WalletService.get_wallet_investigation(uid)
+

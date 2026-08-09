@@ -13,6 +13,7 @@ Color getStatusColor(String status) {
       return AppColors.success; // Eco success green
     case 'refund_pending':
       return const Color(0xFFB87333); // Warm amber
+    case 'refunded':
     case 'cancelled':
       return AppColors.error; // Premium red/coral
     default:

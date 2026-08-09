@@ -1,10 +1,12 @@
+from google.cloud import firestore
 from config.firebase import db
-from .schemas import UserProfile, WalletSummary, WalletTransaction, UserDetail
+from .schemas import UserProfile, WalletSummary, WalletTransaction, UserDetail, CreateUserProfileRequest, PickupPinInfo
+from datetime import datetime, timezone
 
 
 class UserRepository:
     """
-    All Firestore reads for the Users feature.
+    All Firestore reads and writes for the Users feature.
     Talks directly to the Firebase Admin SDK — bypasses Firestore Security Rules.
     """
 
@@ -67,3 +69,112 @@ class UserRepository:
         transactions.sort(key=lambda t: str(t.timestamp or ""), reverse=True)
 
         return UserDetail(profile=profile, wallet=wallet, transactions=transactions)
+
+    @staticmethod
+    def upsert_user_profile(uid: str, payload: CreateUserProfileRequest) -> UserProfile:
+        """
+        Initializes or updates user profile in Users/{uid} and creates initial 0-balance wallet.
+        Uses a WriteBatch to commit user and wallet writes in a single RPC.
+        """
+        user_ref = db.collection(UserRepository._users_col).document(uid)
+        wallet_ref = db.collection(UserRepository._wallets_col).document(uid)
+
+        # Read both docs in a single batched read
+        user_snap, wallet_snap = db.get_all([user_ref, wallet_ref])
+
+        data_to_set = {
+            "uid": uid,
+            "name": payload.name.strip(),
+            "email": payload.email.strip().lower(),
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+        }
+        if payload.phone:
+            data_to_set["phone"] = payload.phone.strip()
+
+        batch = db.batch()
+
+        if not user_snap.exists:
+            data_to_set["createdAt"] = firestore.SERVER_TIMESTAMP
+            data_to_set["isAdmin"] = False
+            data_to_set["role"] = "customer"
+            if payload.pickup_pin:
+                data_to_set["pickupPin"] = payload.pickup_pin.strip()
+                data_to_set["lastPinChange"] = firestore.SERVER_TIMESTAMP
+            batch.set(user_ref, data_to_set)
+        else:
+            existing = user_snap.to_dict() or {}
+            if payload.pickup_pin and not existing.get("pickupPin"):
+                data_to_set["pickupPin"] = payload.pickup_pin.strip()
+                data_to_set["lastPinChange"] = firestore.SERVER_TIMESTAMP
+            batch.set(user_ref, data_to_set, merge=True)
+
+        # Create wallet only if it doesn't already exist
+        if not wallet_snap.exists:
+            batch.set(wallet_ref, {
+                "balance": 0.0,
+                "total_added": 0.0,
+                "total_spent": 0.0,
+                "created_at": firestore.SERVER_TIMESTAMP,
+            })
+
+        batch.commit()
+
+        # Construct return value from known committed state — no extra Firestore read needed
+        known_data = {
+            **(user_snap.to_dict() or {} if user_snap.exists else {}),
+            **{k: v for k, v in data_to_set.items() if k != "updatedAt"},
+            "uid": uid,
+        }
+        return UserProfile.from_firestore(uid, known_data)
+
+
+    @staticmethod
+    def get_pickup_pin_info(uid: str) -> tuple[dict, PickupPinInfo]:
+        """
+        Returns the raw user doc dict and parsed PickupPinInfo.
+        """
+        user_ref = db.collection(UserRepository._users_col).document(uid)
+        user_snap = user_ref.get()
+        if not user_snap.exists:
+            return {}, PickupPinInfo(has_pin=False, last_changed=None, can_change_in_days=0)
+
+        data = user_snap.to_dict() or {}
+        pin = data.get("pickupPin")
+        last_changed_ts = data.get("lastPinChange")
+
+        can_change_in_days = 0
+        last_changed_iso = None
+        if last_changed_ts:
+            if hasattr(last_changed_ts, "to_datetime"):
+                dt = last_changed_ts.to_datetime()
+            elif isinstance(last_changed_ts, datetime):
+                dt = last_changed_ts
+            else:
+                dt = datetime.now(timezone.utc)
+
+            last_changed_iso = dt.isoformat()
+            now = datetime.now(timezone.utc)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            days_passed = (now - dt).days
+            if days_passed < 30:
+                can_change_in_days = 30 - days_passed
+
+        return data, PickupPinInfo(
+            has_pin=bool(pin),
+            last_changed=last_changed_iso,
+            can_change_in_days=can_change_in_days,
+        )
+
+    @staticmethod
+    def update_pickup_pin(uid: str, new_pin: str) -> None:
+        """
+        Updates pickup PIN and updates lastPinChange to server timestamp.
+        """
+        user_ref = db.collection(UserRepository._users_col).document(uid)
+        user_ref.set({
+            "pickupPin": new_pin,
+            "lastPinChange": firestore.SERVER_TIMESTAMP,
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+        }, merge=True)
+

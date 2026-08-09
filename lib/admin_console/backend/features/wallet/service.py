@@ -1,11 +1,14 @@
 import hmac
 import hashlib
+import uuid
 from typing import Optional
 from fastapi import HTTPException, status
 
-from config.settings import RAZORPAY_KEY_SECRET
+from config.settings import RAZORPAY_KEY_SECRET, RAZORPAY_KEY_ID
 from .repository import WalletRepository
 from .schemas import (
+    CartItemRequest,
+    CreateOrderResponse,
     PendingDepositItem,
     RefundRequestItem,
     UpdateRefundStatusRequest,
@@ -18,6 +21,7 @@ VALID_REFUND_TARGET_STATUSES = {
     "credited",
     "rejected",
 }
+
 
 
 class WalletService:
@@ -85,6 +89,32 @@ class WalletService:
             reason=payload.reason,
         )
         return updated
+
+    @staticmethod
+    def create_refund_request(
+        user_uid: str,
+        order_id: str,
+        reason: Optional[str] = None,
+    ) -> RefundRequestItem:
+        return WalletRepository.create_refund_request(
+            user_uid=user_uid,
+            order_id=order_id,
+            reason=reason,
+        )
+
+    @staticmethod
+    def create_manual_adjustment(
+        user_uid: str,
+        amount: float,
+        description: str,
+        admin_uid: str,
+    ) -> dict:
+        return WalletRepository.create_manual_adjustment(
+            user_uid=user_uid,
+            amount=amount,
+            description=description,
+            admin_uid=admin_uid,
+        )
 
     @staticmethod
     def get_wallet_investigation(uid: str) -> UserWalletInvestigation:
@@ -194,3 +224,146 @@ class WalletService:
             return {"status": "approved", "deposit_id": deposit_id}
         else:
             return {"status": "already_approved", "deposit_id": deposit_id}
+
+    @staticmethod
+    def _create_razorpay_order_internal(amount_paise: int, receipt: str, notes: dict) -> tuple[str, str]:
+        """
+        Internal helper to create a Razorpay order via SDK with mock fallback in dev.
+        Returns (order_id, gateway_type) where gateway_type is 'razorpay' or 'mock'.
+        """
+        if RAZORPAY_KEY_SECRET and RAZORPAY_KEY_ID and not RAZORPAY_KEY_ID.startswith("rzp_test_PLACEHOLDER"):
+            try:
+                import razorpay
+                client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+                order_data = {
+                    "amount": amount_paise,
+                    "currency": "INR",
+                    "receipt": receipt,
+                    "notes": notes,
+                    "payment_capture": 1,
+                }
+                order = client.order.create(data=order_data)
+                return order["id"], "razorpay"
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Razorpay order creation failed: {str(exc)}",
+                )
+        else:
+            # Fallback for dev / mock testing environments
+            return f"order_mock_{uuid.uuid4().hex[:12]}", "mock"
+
+    @staticmethod
+    def create_deposit_order(user_uid: str, amount: float) -> CreateOrderResponse:
+        """
+        Creates a server-authorized Razorpay order for wallet top-up.
+        Enforces min/max deposit bounds (₹20 - ₹500) and records pending deposit.
+        Automatically selects 'mock' or 'razorpay' gateway based on execution mode.
+        """
+        from config.firebase import db
+        from google.cloud import firestore
+
+        if amount < 20.0 or amount > 500.0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Deposit amount must be between ₹20 and ₹500.",
+            )
+
+        amount_paise = int(round(amount * 100))
+        dep_id = f"dep_{uuid.uuid4().hex[:16]}"
+        receipt_id = f"rcpt_{dep_id[:10]}"
+
+        rzp_order_id, gateway = WalletService._create_razorpay_order_internal(
+            amount_paise=amount_paise,
+            receipt=receipt_id,
+            notes={"deposit_id": dep_id, "user_uid": user_uid, "type": "wallet_deposit"},
+        )
+
+        # Store pending deposit record in Firestore with the detected gateway
+        dep_ref = db.collection("pending_deposits").document(dep_id)
+        dep_ref.set({
+            "deposit_id": dep_id,
+            "user_uid": user_uid,
+            "amount": amount,
+            "status": "awaiting_review",
+            "gateway": gateway,
+            "razorpay_order_id": rzp_order_id,
+            "created_at": firestore.SERVER_TIMESTAMP,
+        })
+
+        return CreateOrderResponse(
+            razorpay_order_id=rzp_order_id,
+            amount_paise=amount_paise,
+            amount_rupees=amount,
+            currency="INR",
+            key_id=RAZORPAY_KEY_ID,
+            deposit_id=dep_id,
+        )
+
+    @staticmethod
+    def create_cart_order(user_uid: str, items: list[CartItemRequest]) -> CreateOrderResponse:
+        """
+        Creates a server-authorized Razorpay order for cart checkout.
+        Prices are calculated strictly server-side by fetching menu documents.
+        """
+        from config.firebase import db
+
+        if not items:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cart cannot be empty.",
+            )
+
+        total_paise = 0
+        total_rupees = 0.0
+
+        for item in items:
+            menu_doc = db.collection("Menu").document(item.menu_item_id).get()
+            if not menu_doc.exists:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Menu item '{item.menu_item_id}' not found.",
+                )
+
+            data = menu_doc.to_dict() or {}
+            if not data.get("is_available", True):
+                name = data.get("name", item.menu_item_id)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Item '{name}' is currently out of stock.",
+                )
+
+            price = float(data.get("price", 0.0))
+            if price <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid price for item '{item.menu_item_id}'.",
+                )
+
+            item_total = price * item.quantity
+            total_rupees += item_total
+            total_paise += int(round(item_total * 100))
+
+        if total_paise <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Total cart payable amount must be greater than zero.",
+            )
+
+        order_tracking_id = f"ord_rzp_{uuid.uuid4().hex[:12]}"
+        receipt_id = f"rcpt_{order_tracking_id[:10]}"
+
+        rzp_order_id, _ = WalletService._create_razorpay_order_internal(
+            amount_paise=total_paise,
+            receipt=receipt_id,
+            notes={"user_uid": user_uid, "tracking_id": order_tracking_id, "type": "cart_checkout"},
+        )
+
+        return CreateOrderResponse(
+            razorpay_order_id=rzp_order_id,
+            amount_paise=total_paise,
+            amount_rupees=round(total_rupees, 2),
+            currency="INR",
+            key_id=RAZORPAY_KEY_ID,
+        )
+

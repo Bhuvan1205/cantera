@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../user_console/services/auth_service.dart';
+import '../../core/services/api_client.dart';
 import '../../theme/app_colors.dart';
 
 /// Re-themed auxiliary admin menu screen utilizing the design tokens of the Premium Organic system.
@@ -14,49 +14,15 @@ class AdminMenuScreen extends StatefulWidget {
 }
 
 class _AdminMenuScreenState extends State<AdminMenuScreen> {
-  late final Future<bool> _adminFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _adminFuture = AuthService.isCurrentUserAdmin();
-  }
-
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<bool>(
-      future: _adminFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            backgroundColor: AppColors.bg,
-            body: Center(child: CircularProgressIndicator(color: AppColors.primary)),
-          );
-        }
-
-        if (snapshot.data != true) {
-          return const Scaffold(
-            backgroundColor: AppColors.bg,
-            body: Center(
-              child: Text(
-                'Access Denied',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.primary,
-                ),
-              ),
-            ),
-          );
-        }
-
-        return Scaffold(
-          backgroundColor: AppColors.bg,
-          appBar: AppBar(
-            backgroundColor: AppColors.bg,
-            elevation: 0,
-            scrolledUnderElevation: 0,
-            automaticallyImplyLeading: false,
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: AppBar(
+        backgroundColor: AppColors.bg,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        automaticallyImplyLeading: true,
             title: const Text(
               'Manage Menu',
               style: TextStyle(
@@ -112,8 +78,6 @@ class _AdminMenuScreenState extends State<AdminMenuScreen> {
             },
           ),
         );
-      },
-    );
   }
 }
 
@@ -187,10 +151,11 @@ class _AdminMenuItemCardState extends State<_AdminMenuItemCard> {
     });
 
     try {
-      await FirebaseFirestore.instance
-          .collection('Menu')
-          .doc(widget.document.id)
-          .update({field: parsed});
+      final backendField = field == 'price' ? 'price' : 'stock';
+      await ApiClient.instance.patch(
+        '/api/inventory/${widget.document.id}',
+        body: {backendField: parsed},
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -210,10 +175,10 @@ class _AdminMenuItemCardState extends State<_AdminMenuItemCard> {
     });
 
     try {
-      await FirebaseFirestore.instance
-          .collection('Menu')
-          .doc(widget.document.id)
-          .update({'isAvailable': value});
+      await ApiClient.instance.patch(
+        '/api/inventory/${widget.document.id}',
+        body: {'is_available': value},
+      );
     } finally {
       if (mounted) {
         setState(() {

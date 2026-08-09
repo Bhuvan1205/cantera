@@ -59,7 +59,9 @@ class OrderDetailScreen extends StatelessWidget {
   final bool isRefundPending;
 
   bool get _isDelivered => status.toLowerCase() == 'delivered';
-  bool get _isCancelled => status.toLowerCase() == 'cancelled';
+  bool get _isCancelled =>
+      status.toLowerCase() == 'cancelled' ||
+      status.toLowerCase() == 'refunded';
 
   @override
   Widget build(BuildContext context) {
@@ -332,7 +334,7 @@ class _QrButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDisabled = isDelivered || isCancelled;
     final titleText = isCancelled 
-        ? 'Order Refunded / Cancelled' 
+        ? 'Refunded Order' 
         : isDelivered 
             ? 'Order Delivered'
             : 'Display Pickup QR Code';

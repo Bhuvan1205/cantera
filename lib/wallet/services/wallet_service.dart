@@ -1,5 +1,3 @@
-// ignore_for_file: avoid_catches_without_on_clauses
-
 import 'dart:convert';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -7,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 
 import '../../config/app_config.dart';
+import '../../core/services/api_client.dart';
 import '../models/pending_deposit_model.dart';
 import '../models/refund_request_model.dart';
 import '../models/wallet_model.dart';
@@ -27,11 +26,9 @@ enum OrderPaymentMethod {
 
 /// Central service for all wallet operations.
 ///
-/// Mirrors the static-method pattern of [OrderService] and [AuthService].
-/// No state is stored here — all persistence is in Firestore.
-///
-/// All write operations that modify the wallet balance are executed as
-/// Firestore Transactions inside [FirestoreWalletRepository].
+/// Under ADR-001 (Backend-First Architecture), all mutations execute
+/// exclusively via the FastAPI backend on Cloud Run.
+/// Real-time reads and streams are served via [FirestoreWalletRepository].
 class WalletService {
   WalletService._(); // Prevent instantiation
 
@@ -40,10 +37,6 @@ class WalletService {
   // ── Deposit constraints ─────────────────────────────────────────────────
   static const double minDepositAmount = 20.0;
   static const double maxDepositAmount = 500.0;
-
-  // ── Razorpay configuration ──────────────────────────────────────────────
-  /// Replace with your live Razorpay key before release.
-  static const String _razorpayKeyId = 'rzp_test_PLACEHOLDER';
 
   // ── Wallet reads ────────────────────────────────────────────────────────
 
@@ -88,13 +81,40 @@ class WalletService {
 
   // ── Razorpay payment flow ────────────────────────────────────────────────
 
+  /// Requests the backend to compute the deposit order and create a Razorpay order.
+  /// Returns a map with razorpay_order_id, amount_paise, and deposit_id.
+  static Future<Map<String, dynamic>> createDepositOrder(double amount) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw Exception('User is not authenticated.');
+
+    final idToken = await user.getIdToken();
+    final uri = Uri.parse('${AppConfig.backendBaseUrl}/api/wallet/orders/deposit');
+
+    final response = await http.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $idToken',
+      },
+      body: jsonEncode({'amount': amount}),
+    );
+
+    if (response.statusCode != 200) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>?;
+      final detail = body?['detail'] as String? ?? 'Failed to initialize deposit order.';
+      throw Exception(detail);
+    }
+
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
   /// Builds the Razorpay checkout options map.
   ///
-  /// The [onSuccess] callback receives the Razorpay payment_id and
-  /// should call [submitPendingDeposit] to record the pending deposit.
+  /// The [orderId] is the server-authorized Razorpay order ID.
   static Map<String, dynamic> buildRazorpayOptions({
     required double amount,
     required String userId,
+    String? orderId,
     required void Function(PaymentSuccessResponse) onSuccess,
     required void Function(PaymentFailureResponse) onError,
     required void Function(ExternalWalletResponse) onExternalWallet,
@@ -106,8 +126,8 @@ class WalletService {
     razorpayInstance.on(Razorpay.EVENT_PAYMENT_ERROR, onError);
     razorpayInstance.on(Razorpay.EVENT_EXTERNAL_WALLET, onExternalWallet);
 
-    return {
-      'key': _razorpayKeyId,
+    final options = <String, dynamic>{
+      'key': AppConfig.razorpayKeyId,
       'amount': (amount * 100).toInt(), // Razorpay expects paise
       'name': 'Cantora',
       'description': 'Wallet Top-up',
@@ -118,30 +138,13 @@ class WalletService {
       },
       'theme': {'color': '#0F382B'}, // AppColors.primary
     };
+
+    if (orderId != null && orderId.isNotEmpty) {
+      options['order_id'] = orderId;
+    }
+
+    return options;
   }
-
-  // ── Submit pending deposit (after payment SDK success callback) ──────────
-
-  /// Records a successful payment as a pending deposit awaiting backend verification.
-  ///
-  /// This is called immediately after the Razorpay or mock gateway
-  /// success callback. It does NOT credit the wallet.
-  static Future<String> submitPendingDeposit({
-    required String userId,
-    required double amount,
-    required String razorpayPaymentId,
-    String? razorpayOrderId,
-    String? razorpaySignature,
-    PaymentGateway gateway = PaymentGateway.razorpay,
-  }) =>
-      _repo.createPendingDeposit(
-        userId: userId,
-        amount: amount,
-        razorpayPaymentId: razorpayPaymentId,
-        razorpayOrderId: razorpayOrderId,
-        razorpaySignature: razorpaySignature,
-        gateway: gateway == PaymentGateway.mock ? 'mock' : 'razorpay',
-      );
 
   // ── Backend payment verification ─────────────────────────────────────────
 
@@ -154,7 +157,6 @@ class WalletService {
   ///      then atomically credits the wallet via Firebase Admin SDK.
   ///
   /// Throws an [Exception] with a user-readable message on failure.
-  /// The deposit is left in 'awaiting_review' if verification fails.
   static Future<void> verifyDeposit(String depositId) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw Exception('User is not authenticated.');
@@ -183,45 +185,20 @@ class WalletService {
     throw Exception(message);
   }
 
-  // ── Wallet purchase ──────────────────────────────────────────────────────
-
-  /// Atomically deducts [amount] from the user's wallet.
-  ///
-  /// Must be called BEFORE [OrderService.placeOrder]. If the order placement
-  /// subsequently fails, call [refundToWallet] as compensation.
-  ///
-  /// Throws an [Exception] with a user-readable message if balance is
-  /// insufficient or the wallet does not exist.
-  static Future<void> purchaseWithWallet({
-    required String userId,
-    required double amount,
-    required String orderId,
-    required String description,
-  }) =>
-      _repo.purchaseWithWallet(
-        userId: userId,
-        amount: amount,
-        orderId: orderId,
-        description: description,
-      );
-
   // ── Refund request ───────────────────────────────────────────────────────
 
-  /// Creates a refund request for an order still in 'placed' status.
-  ///
-  /// Throws if the order has progressed beyond 'placed' status.
+  /// Creates a refund request for an order still in 'placed' status via backend.
   static Future<void> requestRefund({
     required String userId,
     required String orderId,
     required double amount,
     String? reason,
-  }) =>
-      _repo.createRefundRequest(
-        userId: userId,
-        orderId: orderId,
-        amount: amount,
-        reason: reason,
-      );
+  }) async {
+    await ApiClient.instance.post('/api/wallet/refunds/request', body: {
+      'order_id': orderId,
+      'reason': reason,
+    });
+  }
 
   // ── Admin operations ─────────────────────────────────────────────────────
 
@@ -229,38 +206,55 @@ class WalletService {
   static Future<void> approveDeposit(
     String depositId,
     String adminUid,
-  ) =>
-      _repo.approveDeposit(depositId, adminUid);
+  ) async {
+    await ApiClient.instance.post('/api/wallet/deposits/$depositId/review', body: {
+      'action': 'approve',
+    });
+  }
 
   /// Admin: reject a pending deposit without crediting the wallet.
   static Future<void> rejectDeposit(
     String depositId,
     String adminUid,
     String reason,
-  ) =>
-      _repo.rejectDeposit(depositId, adminUid, reason);
+  ) async {
+    await ApiClient.instance.post('/api/wallet/deposits/$depositId/review', body: {
+      'action': 'reject',
+      'reason': reason,
+    });
+  }
 
-   /// Admin: approve a refund request and credit the wallet.
+  /// Admin: approve a refund request and credit the wallet.
   static Future<void> approveRefund(
     String requestId,
     String adminUid,
-  ) =>
-      _repo.approveRefund(requestId, adminUid);
+  ) async {
+    await ApiClient.instance.patch('/api/wallet/refunds/$requestId', body: {
+      'status': 'approved',
+    });
+  }
 
   /// Admin: move a refund request to under review status.
   static Future<void> reviewRefund(
     String requestId,
     String adminUid,
-  ) =>
-      _repo.reviewRefund(requestId, adminUid);
+  ) async {
+    await ApiClient.instance.patch('/api/wallet/refunds/$requestId', body: {
+      'status': 'refund_under_review',
+    });
+  }
 
   /// Admin: reject a refund request.
   static Future<void> rejectRefund(
     String requestId,
     String adminUid,
     String reason,
-  ) =>
-      _repo.rejectRefund(requestId, adminUid, reason);
+  ) async {
+    await ApiClient.instance.patch('/api/wallet/refunds/$requestId', body: {
+      'status': 'rejected',
+      'reason': reason,
+    });
+  }
 
   /// Admin: live stream of all pending deposits.
   static Stream<List<PendingDepositModel>> watchAllPendingDeposits() =>
@@ -276,11 +270,11 @@ class WalletService {
     required double amount,
     required String description,
     required String adminUid,
-  }) =>
-      _repo.createAdjustment(
-        userId: userId,
-        amount: amount,
-        description: description,
-        adminUid: adminUid,
-      );
+  }) async {
+    await ApiClient.instance.post('/api/wallet/adjustments', body: {
+      'user_uid': userId,
+      'amount': amount,
+      'description': description,
+    });
+  }
 }
