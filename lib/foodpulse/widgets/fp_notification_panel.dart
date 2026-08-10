@@ -77,8 +77,8 @@ class _FoodPulseNotificationPanelState extends State<FoodPulseNotificationPanel>
         return ListTile(
           leading: CircleAvatar(
             backgroundColor: isRead
-                ? Colors.grey.withOpacity(0.2)
-                : Theme.of(context).primaryColor.withOpacity(0.1),
+                ? Colors.grey.withValues(alpha: 0.2)
+                : Theme.of(context).primaryColor.withValues(alpha: 0.1),
             child: Icon(
               Icons.psychology,
               color: isRead ? Colors.grey : Theme.of(context).primaryColor,

@@ -62,10 +62,10 @@ class _VoteButtonWidgetState extends State<VoteButtonWidget> {
         decoration: BoxDecoration(
           color: isVoted
               ? Theme.of(context).primaryColor
-              : Theme.of(context).primaryColor.withOpacity(0.08),
+              : Theme.of(context).primaryColor.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: Theme.of(context).primaryColor.withOpacity(0.3),
+            color: Theme.of(context).primaryColor.withValues(alpha: 0.3),
           ),
         ),
         child: Row(

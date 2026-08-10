@@ -230,66 +230,70 @@ class _PollModalState extends State<PollModal> {
                       ],
 
                       // Options List (Radio Buttons)
-                      ...List.generate(
-                        (_poll!['options'] as List? ?? []).length,
-                        (index) {
-                          final opt = (_poll!['options'] as List)[index];
-                          final optId = opt['id'].toString();
-                          final optText = opt['text'].toString();
-                          final isSelected = _selectedOptionId == optId;
+                      RadioGroup<String>(
+                        groupValue: _selectedOptionId,
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() => _selectedOptionId = val);
+                          }
+                        },
+                        child: Column(
+                          children: List.generate(
+                            (_poll!['options'] as List? ?? []).length,
+                            (index) {
+                              final opt = (_poll!['options'] as List)[index];
+                              final optId = opt['id'].toString();
+                              final optText = opt['text'].toString();
+                              final isSelected = _selectedOptionId == optId;
 
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: InkWell(
-                              onTap: () {
-                                setState(() {
-                                  _selectedOptionId = optId;
-                                });
-                              },
-                              borderRadius: BorderRadius.circular(14),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? const Color(0xFF7C3AED).withValues(alpha: 0.2)
-                                      : const Color(0xFF1E293B).withValues(alpha: 0.7),
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: InkWell(
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedOptionId = optId;
+                                    });
+                                  },
                                   borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color: isSelected
-                                        ? const Color(0xFFA78BFA)
-                                        : const Color(0xFF334155),
-                                    width: isSelected ? 1.5 : 1,
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Radio<String>(
-                                      value: optId,
-                                      groupValue: _selectedOptionId,
-                                      activeColor: const Color(0xFFA78BFA),
-                                      onChanged: (val) {
-                                        if (val != null) {
-                                          setState(() => _selectedOptionId = val);
-                                        }
-                                      },
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Expanded(
-                                      child: Text(
-                                        optText,
-                                        style: TextStyle(
-                                          color: isSelected ? Colors.white : const Color(0xFFCBD5E1),
-                                          fontSize: 14,
-                                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                                        ),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                    decoration: BoxDecoration(
+                                      color: isSelected
+                                          ? const Color(0xFF7C3AED).withValues(alpha: 0.2)
+                                          : const Color(0xFF1E293B).withValues(alpha: 0.7),
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? const Color(0xFFA78BFA)
+                                            : const Color(0xFF334155),
+                                        width: isSelected ? 1.5 : 1,
                                       ),
                                     ),
-                                  ],
+                                    child: Row(
+                                      children: [
+                                        Radio<String>(
+                                          value: optId,
+                                          activeColor: const Color(0xFFA78BFA),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Expanded(
+                                          child: Text(
+                                            optText,
+                                            style: TextStyle(
+                                              color: isSelected ? Colors.white : const Color(0xFFCBD5E1),
+                                              fontSize: 14,
+                                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                          );
-                        },
+                              );
+                            },
+                          ),
+                        ),
                       ),
                       const SizedBox(height: 16),
 

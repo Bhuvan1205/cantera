@@ -16,7 +16,6 @@ import 'order_history_screen.dart';
 import 'profile_screen.dart';
 import 'queue_screen.dart';
 import 'qr_scanner_screen.dart';
-import '../../foodpulse/screens/foodpulse_screen.dart';
 
 class MenuPage extends StatefulWidget {
   const MenuPage({super.key});
@@ -141,14 +140,6 @@ class _MenuPageState extends State<MenuPage> {
     );
   }
 
-  void _openFoodPulse() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => const FoodPulseScreen(),
-      ),
-    );
-  }
-
   void _openProfile() {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -192,7 +183,6 @@ class _MenuPageState extends State<MenuPage> {
 
       setState(() => _isPlacingOrder = true);
 
-      final messenger = ScaffoldMessenger.of(cartContext);
       final navigator = Navigator.of(cartContext);
       final userId = FirebaseAuth.instance.currentUser!.uid;
 
@@ -216,6 +206,7 @@ class _MenuPageState extends State<MenuPage> {
       traceStack = stack;
 
       if (mounted) setState(() => _isPlacingOrder = false);
+      if (!cartContext.mounted) return;
 
       final messenger = ScaffoldMessenger.of(cartContext);
       messenger.showSnackBar(

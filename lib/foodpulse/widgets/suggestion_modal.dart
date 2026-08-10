@@ -216,7 +216,7 @@ class _SuggestionModalState extends State<SuggestionModal> {
               ),
               const SizedBox(height: 6),
               DropdownButtonFormField<String>(
-                value: _selectedSection,
+                initialValue: _selectedSection,
                 dropdownColor: const Color(0xFF1E293B),
                 style: const TextStyle(color: Colors.white, fontSize: 14),
                 icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF38BDF8)),

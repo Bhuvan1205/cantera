@@ -79,12 +79,12 @@ class _TrendingSuggestionsWidgetState extends State<TrendingSuggestionsWidget> {
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
+                      color: Colors.black.withValues(alpha: 0.05),
                       blurRadius: 8,
                       offset: const Offset(0, 2),
                     ),
                   ],
-                  border: Border.all(color: Colors.grey.withOpacity(0.2)),
+                  border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
