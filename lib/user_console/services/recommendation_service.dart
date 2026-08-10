@@ -10,14 +10,14 @@ class RecommendationService {
   static final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   /// Main entry point for recommendations. 
-  /// Returns a state and a list of 4-5 recommended MenuItem objects.
-  static Future<(RecommendationState, List<MenuItem>)> getRecommendations(
+  /// Returns a state, a list of 4-5 recommended MenuItem objects, and a boolean indicating if recommendations are personalized.
+  static Future<(RecommendationState, List<MenuItem>, bool)> getRecommendations(
     List<MenuItem> currentMenu,
   ) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
-        return (RecommendationState.error, <MenuItem>[]);
+        return (RecommendationState.error, <MenuItem>[], false);
       }
       
       final uid = user.uid;
@@ -41,12 +41,12 @@ class RecommendationService {
         
         // Ensure we have enough candidates; supplement with global if needed
         if (candidateFrequencies.length < 5) {
-          final globalFreq = await _fetchGlobalFrequencies();
+          final globalFreq = await _fetchGlobalFrequencies(uid);
           _mergeFrequencies(candidateFrequencies, globalFreq);
         }
       } else {
         // Discovery mode (New user): Global popularity
-        candidateFrequencies = await _fetchGlobalFrequencies();
+        candidateFrequencies = await _fetchGlobalFrequencies(uid);
       }
 
       // 2. Filter by availability and map back to MenuItem objects
@@ -61,6 +61,13 @@ class RecommendationService {
           .where((entry) => availableMenuMap.containsKey(entry.key))
           .toList();
 
+      // Empty Global Data Fallback
+      if (sortedCandidates.isEmpty) {
+        final topItems = availableMenuItems.take(5).toList();
+        final bool isPersonalized = orderCount >= 7;
+        return (RecommendationState.loaded, topItems, isPersonalized);
+      }
+
       // 3. Sort purely by frequency (descending), secondary sort by name
       sortedCandidates.sort((a, b) {
         final cmp = b.value.compareTo(a.value);
@@ -71,19 +78,23 @@ class RecommendationService {
       // 4. Return Top 5
       final topItems = sortedCandidates.take(5).map((entry) => availableMenuMap[entry.key]!).toList();
       
-      return (RecommendationState.loaded, topItems);
+      final bool isPersonalized = orderCount >= 7;
+      return (RecommendationState.loaded, topItems, isPersonalized);
     } catch (e) {
-      return (RecommendationState.error, <MenuItem>[]);
+      return (RecommendationState.error, <MenuItem>[], false);
     }
   }
 
   /// Extracts and counts item occurrences across a list of order documents.
   /// Counts by *quantity ordered* to represent true absolute demand.
   static Map<String, int> _extractFrequencies(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {String? excludeUserId}) {
     final Map<String, int> freq = {};
     for (var doc in docs) {
       final data = doc.data();
+      if (excludeUserId != null && data['userId'] == excludeUserId) {
+        continue;
+      }
       final items = data['items'] as List<dynamic>? ?? [];
       for (var item in items) {
         if (item is Map<String, dynamic>) {
@@ -100,14 +111,14 @@ class RecommendationService {
   }
 
   /// Fetches the 100 most recent orders globally to represent current popularity.
-  static Future<Map<String, int>> _fetchGlobalFrequencies() async {
+  static Future<Map<String, int>> _fetchGlobalFrequencies([String? excludeUserId]) async {
     try {
       final globalSnap = await _db
           .collection('Orders')
           .orderBy('timestamp', descending: true)
           .limit(100)
           .get(const GetOptions(source: Source.serverAndCache));
-      return _extractFrequencies(globalSnap.docs);
+      return _extractFrequencies(globalSnap.docs, excludeUserId: excludeUserId);
     } catch (e) {
       return {};
     }

@@ -70,6 +70,7 @@ class _MenuScreenState extends State<MenuScreen> {
 
   RecommendationState _recState = RecommendationState.loading;
   List<MenuItem> _recommendations = [];
+  bool _isPersonalizedRecs = false;
 
   @override
   void initState() {
@@ -94,12 +95,13 @@ class _MenuScreenState extends State<MenuScreen> {
     if (widget.items.isEmpty) return;
     
     setState(() => _recState = RecommendationState.loading);
-    final (state, recs) = await RecommendationService.getRecommendations(widget.items);
+    final (state, recs, isPersonalized) = await RecommendationService.getRecommendations(widget.items);
     
     if (mounted) {
       setState(() {
         _recState = state;
         _recommendations = recs;
+        _isPersonalizedRecs = isPersonalized;
       });
     }
   }
@@ -261,9 +263,9 @@ class _MenuScreenState extends State<MenuScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '⭐ Recommended For You',
-          style: TextStyle(
+        Text(
+          _isPersonalizedRecs ? '⭐ Your Craving Corner' : '⭐ Canteen Buzz',
+          style: const TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w800,
             color: AppColors.primary,
