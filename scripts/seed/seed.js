@@ -13,7 +13,7 @@ import { UserRefreshClient } from "google-auth-library";
 
 const PROJECT_ID = "canteen-app-e1c8d";
 const COLLECTION = "Menu";  // Flutter reads 'Menu' (capital M) — app_flow_screen.dart:30, admin_menu_screen.dart:71
-const BASE_URL = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
+const BASE_URL = `http://127.0.0.1:9090/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 
 // Firebase CLI OAuth2 credentials (public client, stored locally after `firebase login`)
 const FIREBASE_CLIENT_ID =
@@ -25,13 +25,7 @@ const REFRESH_TOKEN =
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 async function getAccessToken() {
-  const client = new UserRefreshClient(
-    FIREBASE_CLIENT_ID,
-    FIREBASE_CLIENT_SECRET,
-    REFRESH_TOKEN
-  );
-  const { credentials } = await client.refreshAccessToken();
-  return credentials.access_token;
+  return "";
 }
 
 // ─── Firestore REST helpers ───────────────────────────────────────────────────
@@ -306,7 +300,12 @@ async function main() {
 
   // ── Step 1: Clear existing documents ──────────────────────────────────────
   console.log("Step 1 ▸ Listing existing documents…");
-  const existingNames = await listDocumentNames(token);
+  let existingNames = [];
+  try {
+    existingNames = await listDocumentNames(token);
+  } catch (e) {
+    console.log("   ⚠️ Could not list existing documents (possibly emulator limitation), skipping delete.");
+  }
   console.log(`   Found ${existingNames.length} existing document(s).`);
 
   if (existingNames.length > 0) {

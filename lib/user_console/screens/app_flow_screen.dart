@@ -1,6 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../core/services/api_client.dart';
 import '../../theme/app_colors.dart';
@@ -183,7 +182,6 @@ class _MenuPageState extends State<MenuPage> {
 
       setState(() => _isPlacingOrder = true);
 
-      final messenger = ScaffoldMessenger.of(cartContext);
       final navigator = Navigator.of(cartContext);
       final userId = FirebaseAuth.instance.currentUser!.uid;
 
@@ -208,15 +206,16 @@ class _MenuPageState extends State<MenuPage> {
 
       if (mounted) setState(() => _isPlacingOrder = false);
 
-      final messenger = ScaffoldMessenger.of(cartContext);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Order failed: ${e.toString().replaceFirst('Exception: ', '')}'),
-          backgroundColor: AppColors.error,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
+      if (cartContext.mounted) {
+        ScaffoldMessenger.of(cartContext).showSnackBar(
+          SnackBar(
+            content: Text('Order failed: ${e.toString().replaceFirst('Exception: ', '')}'),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
     } finally {
       debugPrint(
         'STEP 1\n'

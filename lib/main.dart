@@ -35,6 +35,10 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
+  // if (AppConfig.isDev) {
+  //   FirebaseFirestore.instance.useFirestoreEmulator('127.0.0.1', 9090);
+  // }
+
   FirebaseFirestore.instance.settings = const Settings(
     persistenceEnabled: true,
     cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,

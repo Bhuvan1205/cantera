@@ -2,6 +2,7 @@ import httpx
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, status
 from config.firebase import db
+from auth.verify import verify_firebase_token
 
 router = APIRouter()
 
@@ -68,11 +69,12 @@ async def login(payload: LoginRequest) -> LoginResponse:
     expires_in = data.get("expiresIn", "3600")
     email = data.get("email", payload.email)
 
-    # Verify Firestore admin status
-    user_snap = db.collection("Users").document(uid).get()
+    # 1. Authorize via Firestore 'Users' collection (Requested by User)
     is_admin = False
-    if user_snap.exists:
-        is_admin = bool(user_snap.to_dict().get("isAdmin", False))
+    if uid:
+        user_snap = db.collection("Users").document(uid).get()
+        if user_snap.exists:
+            is_admin = bool(user_snap.to_dict().get("isAdmin", False))
 
     if not is_admin:
         raise HTTPException(

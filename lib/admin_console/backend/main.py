@@ -149,3 +149,11 @@ app.include_router(users_router,     prefix="/api/users",     tags=["Users"])
 app.include_router(inventory_router, prefix="/api/inventory", tags=[" Inventory"])
 app.include_router(orders_router,    prefix="/api/orders",    tags=["Orders"])
 app.include_router(wallet_router,    prefix="/api/wallet",    tags=["Wallet"])
+
+import os
+from fastapi.staticfiles import StaticFiles
+
+build_web_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../build/web"))
+if os.path.exists(build_web_path):
+    app.mount("/", StaticFiles(directory=build_web_path, html=True), name="flutter")
+

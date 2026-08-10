@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/app_colors.dart';
+import '../services/recommendation_service.dart';
 import '../widgets/app_bottom_nav.dart';
+import '../widgets/recommendation_card.dart';
 
 // ─── DATA MODEL ──────────────────────────────────────────────────────────────
 
@@ -66,6 +68,9 @@ class _MenuScreenState extends State<MenuScreen> {
   late String _selectedCategory;
   final ScrollController _scrollController = ScrollController();
 
+  RecommendationState _recState = RecommendationState.loading;
+  List<MenuItem> _recommendations = [];
+
   @override
   void initState() {
     super.initState();
@@ -74,6 +79,29 @@ class _MenuScreenState extends State<MenuScreen> {
         : (widget.categories.isNotEmpty
             ? widget.categories.first.toLowerCase()
             : 'all');
+    _fetchRecommendations();
+  }
+
+  @override
+  void didUpdateWidget(covariant MenuScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.items != oldWidget.items) {
+      _fetchRecommendations();
+    }
+  }
+
+  Future<void> _fetchRecommendations() async {
+    if (widget.items.isEmpty) return;
+    
+    setState(() => _recState = RecommendationState.loading);
+    final (state, recs) = await RecommendationService.getRecommendations(widget.items);
+    
+    if (mounted) {
+      setState(() {
+        _recState = state;
+        _recommendations = recs;
+      });
+    }
   }
 
   @override
@@ -140,6 +168,7 @@ class _MenuScreenState extends State<MenuScreen> {
                           children: [
                             _buildHeadline(),
                             const SizedBox(height: 24),
+                            _buildRecommendationsSection(),
                             _buildCategoryAndSearchRow(),
                             const SizedBox(height: 24),
                             _buildItemList(),
@@ -214,6 +243,53 @@ class _MenuScreenState extends State<MenuScreen> {
         color: AppColors.terracotta,
         letterSpacing: 0.5,
       ),
+    );
+  }
+
+  Widget _buildRecommendationsSection() {
+    if (_recState == RecommendationState.loading) {
+      return const Padding(
+        padding: EdgeInsets.only(bottom: 24),
+        child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+      );
+    }
+    
+    if (_recState == RecommendationState.error || _recommendations.isEmpty) {
+      return const SizedBox.shrink(); // Hide if error or no recommendations
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '⭐ Recommended For You',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: AppColors.primary,
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          height: 260,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: _recommendations.length,
+            clipBehavior: Clip.none,
+            itemBuilder: (context, index) {
+              final item = _recommendations[index];
+              return RecommendationCard(
+                name: item.name,
+                price: item.price,
+                imageUrl: item.imageUrl,
+                category: item.category,
+                onAddTap: () => widget.onAddToCart(item),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 24),
+      ],
     );
   }
 
