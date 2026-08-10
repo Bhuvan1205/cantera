@@ -271,7 +271,7 @@ class _MenuScreenState extends State<MenuScreen> {
         ),
         const SizedBox(height: 16),
         SizedBox(
-          height: 260,
+          height: 100,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             itemCount: _recommendations.length,
