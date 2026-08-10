@@ -24,6 +24,20 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Java for Firebase Emulator Suite
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
       - name: Install Backend Dependencies
         run: |
           python -m pip install --upgrade pip
@@ -31,8 +45,10 @@ jobs:
           pip install pytest pytest-asyncio httpx
 
       - name: Run Backend Pytest Suite
+          # Run tests through the firestore emulator (port 9090 is configured in firebase.json).
+          # This automatically sets FIRESTORE_EMULATOR_HOST=127.0.0.1:9090.
         run: |
-          pytest lib/admin_console/backend/tests/ -v
+          firebase emulators:exec --only firestore "pytest lib/admin_console/backend/tests/ -v"
 
   flutter-checks:
     name: Flutter Analyze & Tests
@@ -72,7 +88,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
