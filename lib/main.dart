@@ -51,6 +51,30 @@ class MyApp extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, authSnapshot) {
+        // --- Temporary Debug Logging ---
+        if (kDebugMode) {
+          debugPrint('\n=== FIREBASE DEBUG INFO ===');
+          debugPrint('Firebase Project ID: ${Firebase.app().options.projectId}');
+          debugPrint('Firestore App Name: ${FirebaseFirestore.instance.app.name}');
+          debugPrint('Current Platform isWeb: $kIsWeb');
+          debugPrint('Backend URL: ${AppConfig.backendBaseUrl}');
+
+          if (authSnapshot.connectionState == ConnectionState.waiting) {
+            debugPrint('Authentication State: WAITING');
+          } else {
+            final user = authSnapshot.data;
+            if (user == null) {
+              debugPrint('Authentication State: USER == NULL (Not Authenticated)');
+              debugPrint('Routing to LoginScreen...');
+            } else {
+              debugPrint('Authentication State: AUTHENTICATED');
+              debugPrint('User UID: ${user.uid}');
+              debugPrint('User Email: ${user.email}');
+              debugPrint('Fetching role from Firestore...');
+            }
+          }
+          debugPrint('===========================\n');
+        }
         // ── Auth state loading ──────────────────────────────────────────────
         if (authSnapshot.connectionState == ConnectionState.waiting) {
           return const _LoadingApp();
@@ -75,6 +99,18 @@ class MyApp extends StatelessWidget {
             // Still fetching role → show spinner
             if (roleSnapshot.connectionState == ConnectionState.waiting) {
               return const _LoadingApp();
+            }
+
+            if (roleSnapshot.hasError) {
+              if (kDebugMode) {
+                debugPrint('\n=== FIRESTORE ERROR ===');
+                debugPrint('Collection Name: Users');
+                debugPrint('Document Path: Users/${user.uid}');
+                debugPrint('Operation: GET');
+                debugPrint('User UID: ${user.uid}');
+                debugPrint('Exception: ${roleSnapshot.error}');
+                debugPrint('=======================\n');
+              }
             }
 
             final isStaffOrAdmin = roleSnapshot.data ?? false;

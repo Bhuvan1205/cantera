@@ -174,7 +174,7 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: _items.length,
-      separatorBuilder: (_, _) => Container(
+      separatorBuilder: (_, __) => Container(
         margin: const EdgeInsets.symmetric(vertical: 8),
         height: 1,
         color: AppColors.border,

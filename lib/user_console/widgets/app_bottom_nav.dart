@@ -6,21 +6,6 @@ import '../utils/app_keys.dart';
 enum NavTab { home, cart, orders, queue }
 
 /// Shared bottom navigation bar used across all user-facing screens.
-///
-/// **Usage:**
-/// ```dart
-/// Scaffold(
-///   bottomNavigationBar: AppBottomNav(
-///     selectedTab: NavTab.cart,
-///     onHomeTap: () { ... },
-///     onOrdersTap: () { ... },
-///     onQueueTap: () { ... },
-///   ),
-/// )
-/// ```
-///
-/// The [selectedTab] parameter controls which item is highlighted.
-/// Unspecified tap callbacks default to `null` (item is non-interactive).
 class AppBottomNav extends StatelessWidget {
   const AppBottomNav({
     super.key,

@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../core/services/api_client.dart';
 import '../../theme/app_colors.dart';
@@ -205,7 +206,6 @@ class _MenuPageState extends State<MenuPage> {
       traceStack = stack;
 
       if (mounted) setState(() => _isPlacingOrder = false);
-
       if (!cartContext.mounted) return;
 
       final messenger = ScaffoldMessenger.of(cartContext);
@@ -420,6 +420,18 @@ class _MenuPageState extends State<MenuPage> {
       builder: (context, snapshot) {
         final isLoading =
             snapshot.connectionState == ConnectionState.waiting;
+            
+        if (snapshot.hasError) {
+          if (kDebugMode) {
+            debugPrint('\n=== FIRESTORE ERROR ===');
+            debugPrint('Collection Name: Menu');
+            debugPrint('Operation: Stream (GET)');
+            debugPrint('User UID: ${FirebaseAuth.instance.currentUser?.uid ?? 'NULL'}');
+            debugPrint('Exception: ${snapshot.error}');
+            debugPrint('=======================\n');
+          }
+        }
+
         final items = (snapshot.hasData && snapshot.data!.docs.isNotEmpty)
             ? _toMenuItems(snapshot.data!.docs)
             : <MenuItem>[];
@@ -506,6 +518,14 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
             snapshot.connectionState == ConnectionState.waiting;
 
         if (snapshot.hasError) {
+          if (kDebugMode) {
+            debugPrint('\n=== FIRESTORE ERROR ===');
+            debugPrint('Collection Name: Orders');
+            debugPrint('Operation: GET');
+            debugPrint('User UID: ${FirebaseAuth.instance.currentUser?.uid ?? 'NULL'}');
+            debugPrint('Exception: ${snapshot.error}');
+            debugPrint('=======================\n');
+          }
           return Scaffold(
             backgroundColor: AppColors.bg,
             body: Center(child: Text('Error: ${snapshot.error}')),
@@ -552,6 +572,18 @@ class OrderDetailPage extends StatelessWidget {
               child: CircularProgressIndicator(color: AppColors.primary),
             ),
           );
+        }
+
+        if (snapshot.hasError) {
+          if (kDebugMode) {
+            debugPrint('\n=== FIRESTORE ERROR ===');
+            debugPrint('Collection Name: Orders');
+            debugPrint('Document Path: Orders/$orderId');
+            debugPrint('Operation: Stream (GET)');
+            debugPrint('User UID: ${FirebaseAuth.instance.currentUser?.uid ?? 'NULL'}');
+            debugPrint('Exception: ${snapshot.error}');
+            debugPrint('=======================\n');
+          }
         }
 
         if (!snapshot.hasData || !snapshot.data!.exists) {
