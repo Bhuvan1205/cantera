@@ -1,6 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../core/services/api_client.dart';
 import '../../theme/app_colors.dart';
@@ -206,6 +205,8 @@ class _MenuPageState extends State<MenuPage> {
       traceStack = stack;
 
       if (mounted) setState(() => _isPlacingOrder = false);
+      if (!cartContext.mounted) return;
+
       if (!cartContext.mounted) return;
 
       final messenger = ScaffoldMessenger.of(cartContext);
