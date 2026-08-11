@@ -155,6 +155,44 @@ class QrService:
                 )
 
         token_data = token_snap.to_dict() or {}
+        token_status = str(token_data.get("token_status", "")).lower()
+
+        if token_status == "delivered":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Token is already delivered.",
+            )
+            
+        if token_status == "discarded":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Token has been discarded and cannot be collected.",
+            )
+            
+        if token_status != "ready_for_pickup":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Token is not ready for pickup (current status: {token_status}).",
+            )
+
+        # Check deadline
+        from datetime import datetime, timezone
+        deadline = token_data.get("collection_deadline")
+        if deadline:
+            if isinstance(deadline, str):
+                try:
+                    deadline_dt = datetime.fromisoformat(deadline.replace("Z", "+00:00"))
+                except:
+                    deadline_dt = None
+            else:
+                deadline_dt = deadline
+            
+            if deadline_dt and datetime.now(timezone.utc) > deadline_dt:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Collection deadline has expired.",
+                )
+
         expected_otp = str(token_data.get("otp", "")).strip()
 
         if not expected_otp or expected_otp != otp.strip():

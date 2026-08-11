@@ -1,0 +1,19 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "tokens",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {
+          "fieldPath": "token_status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "collection_deadline",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

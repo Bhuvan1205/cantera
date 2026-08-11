@@ -181,4 +181,29 @@ class OrderService {
       otp: otp,
     );
   }
+
+  /// Starts meal preparation for a placed Mess order.
+  static Future<void> startPreparation({required String orderId}) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw Exception('User is not authenticated.');
+
+    final idToken = await user.getIdToken();
+    final uri = Uri.parse('${AppConfig.backendBaseUrl}/api/orders/$orderId/start-preparation');
+
+    final response = await http.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $idToken',
+        'Idempotency-Key': IdempotencyUtils.generateKey(),
+      },
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>?;
+      final detail = body?['detail'] as String? ?? 'Start preparation failed.';
+      throw Exception(detail);
+    }
+  }
 }
+

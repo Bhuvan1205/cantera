@@ -2,6 +2,7 @@ import random
 import time
 from typing import Optional
 from google.cloud import firestore
+from datetime import datetime
 
 from config.firebase import db
 from features.inventory.schemas import is_quantified_item
@@ -406,6 +407,17 @@ class OrderRepository:
                 detail=f"Order cannot be cancelled because it is in '{curr_status}' status.",
             )
 
+        # Token-level cancellation protection for Smart Prep
+        token_docs = list(order_ref.collection("tokens").stream())
+        for t_doc in token_docs:
+            t_data = t_doc.to_dict() or {}
+            t_status = str(t_data.get("token_status", "")).lower()
+            if t_status in ("preparing", "ready_for_pickup", "delivered", "discarded"):
+                raise HTTPException(
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
+                    detail="Order cannot be cancelled because preparation has already started.",
+                )
+
         # 1. Restock items in Menu
         items = order_data.get("items", [])
         for item in items:
@@ -481,4 +493,138 @@ class OrderRepository:
             })
 
         return OrderRepository.get_order_by_id(snap.id)
+
+    @staticmethod
+    def start_preparation(order_id: str) -> OrderDetail:
+        order_ref, snap = OrderRepository._find_order_doc_ref(order_id)
+        if not order_ref or not snap or not snap.exists:
+            raise ValueError(f"Order '{order_id}' not found.")
+
+        # Find the mess token
+        mess_token_ref = None
+        mess_token_snap = None
+        token_docs = list(order_ref.collection("tokens").stream())
+        for t_doc in token_docs:
+            data = t_doc.to_dict() or {}
+            if str(data.get("counter", "")).lower() == "mess":
+                mess_token_ref = t_doc.reference
+                mess_token_snap = t_doc
+                break
+
+        if not mess_token_ref or not mess_token_snap:
+            raise ValueError(f"Mess token not found for order '{order_id}'.")
+
+        token_data = mess_token_snap.to_dict() or {}
+        if str(token_data.get("token_status", "")).lower() != "placed":
+            raise ValueError("Mess token is not in 'placed' status.")
+
+        # Calculate queue parameters
+        items_for_cat = token_data.get("items", [])
+        if not items_for_cat:
+            raise ValueError("No items found in Mess token.")
+            
+        queue_name = items_for_cat[0].get("item_name", "Unknown")
+        prep_units_in_queue = sum(item.get("prep_units", 0) for item in items_for_cat)
+        cat_token_num = token_data.get("token_number", 0)
+        token_id = mess_token_snap.id
+
+        batch = db.batch()
+
+        # 1. Update the token to preparing
+        batch.update(mess_token_ref, {
+            "token_status": "preparing",
+            "queue_name": queue_name,
+            "prep_units_in_queue": prep_units_in_queue,
+            "prep_start_time": firestore.SERVER_TIMESTAMP,
+        })
+
+        # 2. Insert into the existing queue collection
+        if queue_name and prep_units_in_queue:
+            queue_ref = db.collection(_QUEUES_COL).document(queue_name)
+            batch.set(queue_ref, {
+                "item_name": queue_name,
+                "avg_prep_time_mins": _get_default_prep_time(queue_name),
+                "queue": firestore.ArrayUnion([{
+                    "token_id": token_id,
+                    "order_id": order_id,
+                    "prep_units": prep_units_in_queue,
+                    "token_number": cat_token_num,
+                    "status": "preparing",
+                }]),
+                "total_prep_units_ahead": firestore.Increment(prep_units_in_queue),
+            }, merge=True)
+
+        batch.commit()
+        return OrderRepository.get_order_by_id(snap.id)
+
+    @staticmethod
+    def mark_prepared(order_id: str, staff_uid: str) -> OrderDetail:
+        from datetime import timezone, timedelta
+        
+        order_ref, snap = OrderRepository._find_order_doc_ref(order_id)
+        if not order_ref or not snap or not snap.exists:
+            raise ValueError(f"Order '{order_id}' not found.")
+
+        # Find the mess token
+        mess_token_ref = None
+        mess_token_snap = None
+        token_docs = list(order_ref.collection("tokens").stream())
+        for t_doc in token_docs:
+            data = t_doc.to_dict() or {}
+            if str(data.get("counter", "")).lower() == "mess":
+                mess_token_ref = t_doc.reference
+                mess_token_snap = t_doc
+                break
+
+        if not mess_token_ref or not mess_token_snap:
+            raise ValueError(f"Mess token not found for order '{order_id}'.")
+
+        token_data = mess_token_snap.to_dict() or {}
+        if str(token_data.get("token_status", "")).lower() != "preparing":
+            raise ValueError("Mess token is not in 'preparing' status.")
+
+        queue_name = token_data.get("queue_name")
+        prep_units_in_queue = token_data.get("prep_units_in_queue", 0)
+        cat_token_num = token_data.get("token_number", 0)
+        token_id = mess_token_snap.id
+
+        now_utc = datetime.now(timezone.utc)
+        deadline_utc = now_utc + timedelta(minutes=15)
+
+        batch = db.batch()
+
+        # 1. Update the token to ready_for_pickup
+        batch.update(mess_token_ref, {
+            "token_status": "ready_for_pickup",
+            "prepared_at": now_utc,
+            "collection_deadline": deadline_utc,
+            "prepared_by": staff_uid,
+        })
+
+        # 2. Remove from queue
+        if queue_name and prep_units_in_queue:
+            queue_ref = db.collection(_QUEUES_COL).document(queue_name)
+            
+            # Since we must match the object exactly to use ArrayRemove, we will 
+            # remove both the 'preparing' and 'waiting' variants in case it was created via manual order.
+            batch.update(queue_ref, {
+                "queue": firestore.ArrayRemove([{
+                    "token_id": token_id,
+                    "order_id": order_id,
+                    "prep_units": prep_units_in_queue,
+                    "token_number": cat_token_num,
+                    "status": "preparing",
+                }, {
+                    "token_id": token_id,
+                    "order_id": order_id,
+                    "prep_units": prep_units_in_queue,
+                    "token_number": cat_token_num,
+                    "status": "waiting",
+                }]),
+                "total_prep_units_ahead": firestore.Increment(-prep_units_in_queue),
+            })
+
+        batch.commit()
+        return OrderRepository.get_order_by_id(snap.id)
+
 

@@ -577,6 +577,13 @@ class OrderDetailPage extends StatelessWidget {
             ? orderId.substring(0, 4).toUpperCase()
             : orderId.toUpperCase();
 
+        final categoryTokens = data['categoryTokens'] as Map<String, dynamic>?;
+        final messTokenId = categoryTokens?['mess']?['tokenId'] as String?;
+        final hasMessItem = (data['items'] as List<dynamic>? ?? [])
+            .any((item) => (item as Map<String, dynamic>)['category']?.toString().toLowerCase() == 'mess');
+        final hasNonMessItem = (data['items'] as List<dynamic>? ?? [])
+            .any((item) => (item as Map<String, dynamic>)['category']?.toString().toLowerCase() != 'mess');
+
         return OrderDetailScreen(
           orderId: orderId,
           orderNumber: '#CC-$shortId',
@@ -592,6 +599,10 @@ class OrderDetailPage extends StatelessWidget {
               'reason': 'User cancelled placed order',
             });
           },
+          hasMessItem: hasMessItem,
+          hasNonMessItem: hasNonMessItem,
+          messTokenId: messTokenId,
+          overallStatus: data['overall_status'] as String? ?? 'active',
         );
       },
     );
@@ -681,6 +692,8 @@ String _normalizeOrderStatus(String? status) {
       return 'delivered';
     case 'refund_pending':
       return 'refund_pending';
+    case 'preparation_pending':
+      return 'preparation_pending';
     case 'refunded':
     case 'cancelled':
       return 'cancelled';

@@ -1,6 +1,6 @@
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
 
@@ -213,5 +213,52 @@ def cancel_order(
         details={"status": "cancelled", "total": res.total},
     )
     return res
+
+
+@router.post(
+    "/{order_id}/start-preparation",
+    response_model=OrderDetail,
+    summary="Start order preparation",
+    description="Transitions a placed Mess token to preparing and adds it to the kitchen queue.",
+)
+def start_preparation(
+    order_id: str,
+    user: dict = Depends(get_current_user),
+) -> OrderDetail:
+    res = OrderService.start_preparation(
+        order_id=order_id,
+        user_uid=user["uid"],
+    )
+    log_audit(
+        action="PREPARATION_STARTED",
+        actor_uid=user["uid"],
+        target=f"Orders/{order_id}",
+        details={"status": "preparing"},
+    )
+    return res
+
+
+@router.post(
+    "/{order_id}/mark-prepared",
+    response_model=OrderDetail,
+    summary="Mark order prepared",
+    description="Transitions a preparing Mess token to ready_for_pickup.",
+)
+def mark_prepared(
+    order_id: str,
+    user: dict = Depends(get_current_staff_or_admin),
+) -> OrderDetail:
+    res = OrderService.mark_prepared(
+        order_id=order_id,
+        staff_uid=user["uid"],
+    )
+    log_audit(
+        action="PREPARATION_COMPLETED",
+        actor_uid=user["uid"],
+        target=f"Orders/{order_id}",
+        details={"status": "ready_for_pickup"},
+    )
+    return res
+
 
 

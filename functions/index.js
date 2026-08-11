@@ -1,4 +1,5 @@
 const { onDocumentWritten } = require("firebase-functions/v2/firestore");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
 
 admin.initializeApp();
@@ -217,5 +218,150 @@ exports.onStockLevelChanged = onDocumentWritten("Menu/{itemId}", async (event) =
   }
 });
 
+/**
+ * Automatically discards Mess tokens that have exceeded their 15-minute pickup window.
+ * Runs every minute.
+ */
+exports.expireReadyOrders = onSchedule("* * * * *", async (event) => {
+  const db = admin.firestore();
+  const now = admin.firestore.Timestamp.now();
 
+  const expiredTokens = await db.collectionGroup("tokens")
+    .where("token_status", "==", "ready_for_pickup")
+    .where("collection_deadline", "<=", now)
+    .get();
 
+  if (expiredTokens.empty) return;
+
+  console.log(`Found ${expiredTokens.size} expired ready_for_pickup tokens.`);
+
+  for (const doc of expiredTokens.docs) {
+    try {
+      await db.runTransaction(async (transaction) => {
+        const tokenSnap = await transaction.get(doc.ref);
+        const data = tokenSnap.data();
+
+        // 1. Concurrency Protection
+        if (data.token_status !== "ready_for_pickup" || !data.collection_deadline) {
+          return; // State changed since query
+        }
+
+        if (data.collection_deadline.toMillis() > Date.now()) {
+          return; // Deadline is actually in the future (safety check)
+        }
+
+        // 2. Safe transition to discarded
+        transaction.update(doc.ref, {
+          token_status: "discarded",
+          discarded_at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        // 3. Queue Cleanup (if stale queue entry exists)
+        const queueName = data.queue_name;
+        const prepUnits = data.prep_units_in_queue;
+        const tokenId = doc.id;
+        const orderId = doc.ref.parent.parent.id;
+
+        if (queueName && prepUnits) {
+          const queueRef = db.collection("queues").doc(queueName);
+          const queueSnap = await transaction.get(queueRef);
+          
+          if (queueSnap.exists) {
+            const queueData = queueSnap.data();
+            const queueArr = queueData.queue || [];
+            const hasEntry = queueArr.some(q => q.token_id === tokenId);
+            
+            if (hasEntry) {
+                transaction.update(queueRef, {
+                    queue: admin.firestore.FieldValue.arrayRemove({
+                        token_id: tokenId,
+                        order_id: orderId,
+                        prep_units: prepUnits,
+                        token_number: data.token_number || 0,
+                        status: "preparing",
+                    }, {
+                        token_id: tokenId,
+                        order_id: orderId,
+                        prep_units: prepUnits,
+                        token_number: data.token_number || 0,
+                        status: "waiting",
+                    }),
+                    total_prep_units_ahead: admin.firestore.FieldValue.increment(-prepUnits),
+                });
+            }
+          }
+        }
+      });
+    } catch (err) {
+      console.error(`Failed to expire token ${doc.id}:`, err);
+    }
+  }
+});
+
+/**
+ * Triggers push notifications for token-level status changes (like discarded).
+ */
+exports.onTokenStatusChanged = onDocumentWritten("Orders/{orderId}/tokens/{tokenId}", async (event) => {
+  const orderId = event.params.orderId;
+  const before = event.data?.before?.data();
+  const after = event.data?.after?.data();
+
+  if (!before || !after) return;
+
+  const oldStatus = before.token_status;
+  const newStatus = after.token_status;
+
+  if (oldStatus === newStatus || newStatus !== "discarded") return;
+
+  const orderSnap = await admin.firestore().collection("Orders").doc(orderId).get();
+  if (!orderSnap.exists) return;
+  const userId = orderSnap.data().userId;
+  if (!userId) return;
+
+  const title = "Order Discarded";
+  const body = "Your prepared food was not collected within 15 minutes and has been discarded. No refund will be issued.";
+
+  const tokensSnap = await admin.firestore()
+    .collection("Users")
+    .doc(userId)
+    .collection("fcm_tokens")
+    .get();
+
+  if (tokensSnap.empty) return;
+
+  const tokenDocs = tokensSnap.docs;
+  const registrationTokens = tokenDocs.map((d) => d.data().token).filter(Boolean);
+
+  if (registrationTokens.length === 0) return;
+
+  const message = {
+    notification: { title, body },
+    data: {
+      orderId: orderId,
+      status: "discarded",
+      click_action: "FLUTTER_NOTIFICATION_CLICK",
+    },
+    tokens: registrationTokens,
+  };
+
+  try {
+    const response = await admin.messaging().sendEachForMulticast(message);
+    const deleteBatch = admin.firestore().batch();
+    
+    response.responses.forEach((resp, idx) => {
+      if (!resp.success) {
+        const errCode = resp.error?.code;
+        if (
+          errCode === "messaging/registration-token-not-registered" ||
+          errCode === "messaging/invalid-registration-token"
+        ) {
+          deleteBatch.delete(tokenDocs[idx].ref);
+        }
+      }
+    });
+    
+    await deleteBatch.commit();
+  } catch (err) {
+    console.error(`Error sending discard notification for token ${event.params.tokenId}:`, err);
+  }
+});

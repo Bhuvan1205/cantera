@@ -1,5 +1,6 @@
 from typing import Optional
 from fastapi import HTTPException, status
+from datetime import datetime, timezone
 
 from .repository import OrderRepository
 from .schemas import (
@@ -10,13 +11,75 @@ from .schemas import (
     UpdateOrderStatusRequest,
 )
 
-VALID_STATUSES = {"placed", "preparing", "delivered", "refund_pending", "cancelled"}
+VALID_STATUSES = {"placed", "preparing", "ready_for_pickup", "delivered", "refund_pending", "cancelled", "discarded"}
 
 
 class OrderService:
     """
     Business logic layer for the Orders feature.
     """
+
+    @staticmethod
+    def start_preparation(order_id: str, user_uid: str) -> OrderDetail:
+        order = OrderRepository.get_order_by_id(order_id)
+        if order is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Order '{order_id}' not found.",
+            )
+
+        if order.user_id != user_uid:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to access this order.",
+            )
+
+        has_mess_token = any(token.counter == "mess" for token in order.tokens) or any(
+            item.category == "mess" for item in order.items
+        )
+        if not has_mess_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only Mess orders can start preparation.",
+            )
+
+        # Idempotency
+        if any(token.counter == "mess" and token.token_status == "preparing" for token in order.tokens):
+            return order
+
+        if order.status != "placed" or order.overall_status != "active":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot start preparation for order in '{order.status}' status (must be placed and active).",
+            )
+
+        return OrderRepository.start_preparation(order_id)
+
+    @staticmethod
+    def mark_prepared(order_id: str, staff_uid: str) -> OrderDetail:
+        order = OrderRepository.get_order_by_id(order_id)
+        if order is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Order '{order_id}' not found.",
+            )
+
+        # Idempotency
+        if any(token.counter == "mess" and token.token_status == "ready_for_pickup" for token in order.tokens):
+            return order
+
+        has_preparing_mess_token = any(
+            token.counter == "mess" and token.token_status == "preparing" 
+            for token in order.tokens
+        )
+        
+        if not has_preparing_mess_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Order does not have a Mess token in 'preparing' state.",
+            )
+
+        return OrderRepository.mark_prepared(order_id, staff_uid)
 
     @staticmethod
     def list_orders(

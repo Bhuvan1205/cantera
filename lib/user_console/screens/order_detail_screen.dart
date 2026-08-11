@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'dart:async';
+import '../services/order_service.dart';
 import '../../theme/app_colors.dart';
 import '../utils/app_keys.dart';
 import '../utils/order_status_utils.dart';
@@ -38,6 +40,10 @@ class OrderDetailScreen extends StatelessWidget {
     this.onCartTap,
     this.onRefundRequest,
     this.isRefundPending = false,
+    this.hasMessItem = false,
+    this.hasNonMessItem = true,
+    this.messTokenId,
+    this.overallStatus = 'active',
   });
 
   final String orderId;
@@ -57,6 +63,11 @@ class OrderDetailScreen extends StatelessWidget {
 
   /// True when a refund request is already pending for this order.
   final bool isRefundPending;
+
+  final bool hasMessItem;
+  final bool hasNonMessItem;
+  final String? messTokenId;
+  final String overallStatus;
 
   bool get _isDelivered => status.toLowerCase() == 'delivered';
   bool get _isCancelled =>
@@ -85,21 +96,29 @@ class OrderDetailScreen extends StatelessWidget {
               total: total,
             ),
             const SizedBox(height: 20),
-            _QrButton(
-              key: AppKeys.orderDetailQrButton,
-              isDelivered: _isDelivered,
-              isCancelled: _isCancelled,
-              onTap: (_isDelivered || _isCancelled)
-                  ? null
-                  : () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => OrderQrScreen(
-                            orderId: orderId,
+            if (hasNonMessItem)
+              _QrButton(
+                key: AppKeys.orderDetailQrButton,
+                isDelivered: _isDelivered,
+                isCancelled: _isCancelled,
+                onTap: (_isDelivered || _isCancelled)
+                    ? null
+                    : () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => OrderQrScreen(
+                              orderId: orderId,
+                            ),
                           ),
                         ),
-                      ),
-            ),
+              ),
+            if (hasMessItem && messTokenId != null) ...[
+              const SizedBox(height: 14),
+              _SmartPreparationSection(
+                orderId: orderId,
+                tokenId: messTokenId!,
+              ),
+            ],
             const SizedBox(height: 14),
             // ── Refund Button ────────────────────────────────────────────────
             _RefundButton(
@@ -601,6 +620,440 @@ class _RefundButtonState extends State<_RefundButton> {
           fontSize: 15,
           fontWeight: FontWeight.w700,
         ),
+      ),
+    );
+  }
+}
+
+class _SmartPreparationSection extends StatelessWidget {
+  const _SmartPreparationSection({
+    required this.orderId,
+    required this.tokenId,
+  });
+
+  final String orderId;
+  final String tokenId;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('Orders')
+          .doc(orderId)
+          .collection('tokens')
+          .doc(tokenId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || !snapshot.data!.exists) {
+          return const SizedBox.shrink();
+        }
+
+        final data = snapshot.data!.data()!;
+        final tokenStatus = (data['token_status'] as String? ?? 'placed').toLowerCase();
+        
+        // Hide smart prep section entirely if delivered
+        if (tokenStatus == 'delivered') {
+          return const SizedBox.shrink();
+        }
+
+        return Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: AppColors.cardBg,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: AppColors.border, width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withValues(alpha: 0.04),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Smart Preparation',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                  letterSpacing: 0.2,
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildStateContent(context, tokenStatus, data),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildStateContent(BuildContext context, String tokenStatus, Map<String, dynamic> data) {
+    if (tokenStatus == 'placed') {
+      return _PlacedStateView(orderId: orderId);
+    } else if (tokenStatus == 'preparing') {
+      return const _PreparingStateView();
+    } else if (tokenStatus == 'ready_for_pickup') {
+      final deadlineTimestamp = data['collection_deadline'] as Timestamp?;
+      final otp = data['otp'] as String?;
+      return _ReadyStateView(
+        deadline: deadlineTimestamp?.toDate(),
+        otp: otp,
+      );
+    } else if (tokenStatus == 'discarded') {
+      return const _DiscardedStateView();
+    }
+    
+    return const SizedBox.shrink();
+  }
+}
+
+class _PlacedStateView extends StatefulWidget {
+  const _PlacedStateView({required this.orderId});
+  final String orderId;
+
+  @override
+  State<_PlacedStateView> createState() => _PlacedStateViewState();
+}
+
+class _PlacedStateViewState extends State<_PlacedStateView> {
+  bool _isLoading = false;
+
+  Future<void> _handleStartPreparation() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.cardBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'WARNING',
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            fontSize: 18,
+            color: AppColors.error,
+          ),
+        ),
+        content: const Text(
+          'Once you confirm preparation:\n\n'
+          '• Your order will immediately be sent to the kitchen.\n'
+          '• Cancellation/refund will no longer be available once preparation begins.\n'
+          '• Once your food is marked as prepared, you have only 15 minutes to collect it.\n'
+          '• If you do not collect it within 15 minutes, the food will be discarded.\n'
+          '• A discarded order will NOT be refunded.',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 14,
+            height: 1.5,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: AppColors.textMuted),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text('Start Preparing'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isLoading = true);
+    try {
+      await OrderService.startPreparation(orderId: widget.orderId);
+      // Wait for Firestore listener to automatically update UI.
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Failed to start preparation: ${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      );
+      setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Request the kitchen to start preparing your meal before you arrive.',
+          style: TextStyle(
+            fontSize: 14,
+            color: AppColors.textMuted,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 16),
+        ElevatedButton(
+          onPressed: _isLoading ? null : _handleStartPreparation,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 52),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            elevation: 0,
+          ),
+          child: _isLoading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2,
+                  ),
+                )
+              : const Text(
+                  'Start Preparing Now',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PreparingStateView extends StatelessWidget {
+  const _PreparingStateView();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: 16.0),
+        child: Column(
+          children: [
+            SizedBox(
+              width: 32,
+              height: 32,
+              child: CircularProgressIndicator(
+                color: Color(0xFFB87333),
+                strokeWidth: 3,
+              ),
+            ),
+            SizedBox(height: 16),
+            Text(
+              'Preparing your meal...',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFFB87333),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReadyStateView extends StatefulWidget {
+  const _ReadyStateView({this.deadline, this.otp});
+  final DateTime? deadline;
+  final String? otp;
+
+  @override
+  State<_ReadyStateView> createState() => _ReadyStateViewState();
+}
+
+class _ReadyStateViewState extends State<_ReadyStateView> {
+  Timer? _timer;
+  int _secondsRemaining = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ReadyStateView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.deadline != widget.deadline) {
+      _startTimer();
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    if (widget.deadline != null) {
+      _updateSeconds();
+      _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        _updateSeconds();
+      });
+    }
+  }
+  
+  void _updateSeconds() {
+    final difference = widget.deadline!.difference(DateTime.now()).inSeconds;
+    if (difference <= 0) {
+      if (_secondsRemaining != 0) {
+        setState(() {
+          _secondsRemaining = 0;
+        });
+      }
+    } else {
+      setState(() {
+        _secondsRemaining = difference;
+      });
+    }
+  }
+
+  String _formatDuration(int totalSeconds) {
+    final minutes = (totalSeconds ~/ 60).toString().padLeft(2, '0');
+    final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 48),
+        const SizedBox(height: 12),
+        const Text(
+          'Your food is ready!',
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: AppColors.success,
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Collect your food within 15 minutes.',
+          style: TextStyle(fontSize: 14, color: AppColors.textMuted),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          decoration: BoxDecoration(
+            color: AppColors.success.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            _formatDuration(_secondsRemaining),
+            style: const TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.w900,
+              color: AppColors.success,
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        const Text(
+          'YOUR PICKUP PIN',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.2,
+            color: AppColors.textMuted,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          widget.otp ?? '----',
+          style: const TextStyle(
+            fontSize: 40,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 8,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'Tell this PIN to the canteen staff when collecting your meal.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 13,
+            color: AppColors.textMuted,
+            height: 1.4,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DiscardedStateView extends StatelessWidget {
+  const _DiscardedStateView();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.errorBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.errorBorder),
+      ),
+      child: const Column(
+        children: [
+          Icon(Icons.delete_outline_rounded, color: AppColors.error, size: 48),
+          SizedBox(height: 16),
+          Text(
+            'Order Discarded',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: AppColors.error,
+            ),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Your prepared food was not collected within 15 minutes.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              color: AppColors.error,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'No refund will be issued.',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: AppColors.error,
+            ),
+          ),
+        ],
       ),
     );
   }
