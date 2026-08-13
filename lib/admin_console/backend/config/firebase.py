@@ -130,7 +130,7 @@ def _initialize_firebase() -> None:
 
         elif mode == "cloud_run":
             # Priority 4: Cloud Run service account metadata server
-            firebase_admin.initialize_app()
+            firebase_admin.initialize_app(options={"projectId": project_id})
             credential_source = "Cloud Run Service Account (Metadata Server)"
 
         else:
@@ -149,7 +149,7 @@ def _initialize_firebase() -> None:
                     "  3. Application Default Credentials: Run 'gcloud auth application-default login'\n"
                 ) from adc_err
 
-            firebase_admin.initialize_app()
+            firebase_admin.initialize_app(options={"projectId": project_id})
             credential_source = "Application Default Credentials (gcloud / ADC)"
 
         _print_startup_banner(mode=mode, project_id=project_id, credential_source=credential_source)
@@ -200,14 +200,16 @@ def _initialize_firestore() -> "firestore.Client":
         ) from exc
 
 
-def _emit_initialization_failure(mode: str, exc: Exception) -> None:
+def _emit_initialization_failure(mode, exc: Exception) -> None:
     """Emits a diagnostic error block to stderr."""
+    # mode may be a tuple (mode_name, key_path) from _detect_mode(), extract the string
+    mode_str = mode[0] if isinstance(mode, tuple) else str(mode)
     separator = "═" * 54
     msg = (
         f"\n╔{separator}╗\n"
         f"║       FATAL: FIRESTORE INITIALIZATION FAILED         ║\n"
         f"╠{separator}╣\n"
-        f"║  Mode      : {mode:<40}║\n"
+        f"║  Mode      : {mode_str:<40}║\n"
         f"║  Error     : {str(exc)[:40]:<40}║\n"
         f"╠{separator}╣\n"
         f"║  The backend cannot start without a valid Firestore  ║\n"
