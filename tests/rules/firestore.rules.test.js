@@ -450,7 +450,36 @@ describe('refund_requests collection', () => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// 11. CATCH-ALL — unlisted collections denied
+// 11. RECOMMENDATIONS collection
+// ════════════════════════════════════════════════════════════════════════════
+describe('Recommendations collection', () => {
+  test('[ALLOW] customer can read recommendations', async () => {
+    await assertSucceeds(customerDb().collection('Recommendations').doc('CanteenBuzz').get());
+  });
+  test('[DENY] unauthenticated user cannot read recommendations', async () => {
+    await assertFails(anonDb().collection('Recommendations').doc('CanteenBuzz').get());
+  });
+  
+  // Writes — ALL DENIED (Backend Cloud Functions only)
+  test('[DENY] customer cannot write recommendations', async () => {
+    await assertFails(customerDb().collection('Recommendations').doc('CanteenBuzz').set({
+      topItems: []
+    }));
+  });
+  test('[DENY] staff cannot write recommendations via client SDK', async () => {
+    await assertFails(staffDb().collection('Recommendations').doc('CanteenBuzz').set({
+      topItems: []
+    }));
+  });
+  test('[DENY] admin cannot write recommendations via client SDK', async () => {
+    await assertFails(adminDb().collection('Recommendations').doc('CanteenBuzz').set({
+      topItems: []
+    }));
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 12. CATCH-ALL — unlisted collections denied
 // ════════════════════════════════════════════════════════════════════════════
 describe('Catch-all: unlisted collections denied', () => {
   test('[DENY] cannot read from unknown collection', async () => {

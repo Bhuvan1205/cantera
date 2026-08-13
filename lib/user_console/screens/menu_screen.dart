@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/app_colors.dart';
+import '../services/recommendation_service.dart';
 import '../widgets/app_bottom_nav.dart';
+import '../widgets/recommendation_card.dart';
 import '../../foodpulse/widgets/poll_modal.dart';
 import '../../foodpulse/widgets/suggestion_fab_widget.dart';
 
@@ -68,6 +70,10 @@ class _MenuScreenState extends State<MenuScreen> {
   late String _selectedCategory;
   final ScrollController _scrollController = ScrollController();
 
+  RecommendationState _recState = RecommendationState.loading;
+  List<MenuItem> _recommendations = [];
+  bool _isPersonalizedRecs = false;
+
   @override
   void initState() {
     super.initState();
@@ -76,6 +82,38 @@ class _MenuScreenState extends State<MenuScreen> {
         : (widget.categories.isNotEmpty
             ? widget.categories.first.toLowerCase()
             : 'all');
+    _fetchRecommendations();
+  }
+
+  @override
+  void didUpdateWidget(covariant MenuScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.items.isEmpty && widget.items.isNotEmpty) {
+      _fetchRecommendations();
+    } else if (widget.items != oldWidget.items && _recommendations.isNotEmpty) {
+      // Update recommendation objects to reflect latest stock/availability without fetching from Firestore
+      final newItemsMap = {for (var item in widget.items) item.name.toLowerCase().trim(): item};
+      setState(() {
+        _recommendations = _recommendations
+            .map((rec) => newItemsMap[rec.name.toLowerCase().trim()] ?? rec)
+            .toList();
+      });
+    }
+  }
+
+  Future<void> _fetchRecommendations() async {
+    if (widget.items.isEmpty) return;
+    
+    setState(() => _recState = RecommendationState.loading);
+    final (state, recs, isPersonalized) = await RecommendationService.getRecommendations(widget.items);
+    
+    if (mounted) {
+      setState(() {
+        _recState = state;
+        _recommendations = recs;
+        _isPersonalizedRecs = isPersonalized;
+      });
+    }
   }
 
   @override
@@ -142,6 +180,7 @@ class _MenuScreenState extends State<MenuScreen> {
                           children: [
                             _buildHeadline(),
                             const SizedBox(height: 24),
+                            _buildRecommendationsSection(),
                             _buildCategoryAndSearchRow(),
                             const SizedBox(height: 24),
                             _buildItemList(),
@@ -249,6 +288,53 @@ class _MenuScreenState extends State<MenuScreen> {
         color: AppColors.terracotta,
         letterSpacing: 0.5,
       ),
+    );
+  }
+
+  Widget _buildRecommendationsSection() {
+    if (_recState == RecommendationState.loading) {
+      return const Padding(
+        padding: EdgeInsets.only(bottom: 24),
+        child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+      );
+    }
+    
+    if (_recState == RecommendationState.error || _recommendations.isEmpty) {
+      return const SizedBox.shrink(); // Hide if error or no recommendations
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _isPersonalizedRecs ? '⭐ Your Craving Corner' : '⭐ Canteen Buzz',
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: AppColors.primary,
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          height: 100,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: _recommendations.length,
+            clipBehavior: Clip.none,
+            itemBuilder: (context, index) {
+              final item = _recommendations[index];
+              return RecommendationCard(
+                name: item.name,
+                price: item.price,
+                imageUrl: item.imageUrl,
+                category: item.category,
+                onAddTap: () => widget.onAddToCart(item),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 24),
+      ],
     );
   }
 

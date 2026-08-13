@@ -2,6 +2,7 @@ import httpx
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, status
 from config.firebase import db
+from auth.verify import verify_firebase_token
 
 router = APIRouter()
 

@@ -208,15 +208,16 @@ class _MenuPageState extends State<MenuPage> {
       if (mounted) setState(() => _isPlacingOrder = false);
       if (!cartContext.mounted) return;
 
-      final messenger = ScaffoldMessenger.of(cartContext);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Order failed: ${e.toString().replaceFirst('Exception: ', '')}'),
-          backgroundColor: AppColors.error,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
+      if (cartContext.mounted) {
+        ScaffoldMessenger.of(cartContext).showSnackBar(
+          SnackBar(
+            content: Text('Order failed: ${e.toString().replaceFirst('Exception: ', '')}'),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
     } finally {
       debugPrint(
         'STEP 1\n'
@@ -357,6 +358,7 @@ class _MenuPageState extends State<MenuPage> {
       'curry':                       'Menu item pictures/Mess/Mess/Curry.jpg',
       'sweet':                       'Menu item pictures/Mess/Mess/Sweet.jpg',
       'parota with kurma':           'Menu item pictures/Mess/Mess/Parota with kurma.jpg',
+      'canteen special (exclusive biryani)': 'Menu item pictures/Mess/Mess/veg-dum-biryani.webp',
       // ── Mess — Noodles & Rice ───────────────────────────────────────────────
       'veg noodles':                 'Menu item pictures/Mess/Mess/veg noodles.png',
       'veg manchuria':               'Menu item pictures/Mess/Mess/veg manchurain.png',

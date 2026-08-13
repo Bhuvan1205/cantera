@@ -1,16 +1,24 @@
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
-# ── Bootstrap: importing firebase triggers fail-fast initialization on startup ─
-# If Firestore cannot be initialized, this import raises RuntimeError and the
-# process aborts before FastAPI registers any middleware or route.
+# ── Bootstrap ────────────────────────────────────────────────────────────────
+# settings MUST be imported first: it calls load_dotenv(), which populates
+# os.environ with GOOGLE_APPLICATION_CREDENTIALS (and other vars) from .env.
+# config.firebase reads GOOGLE_APPLICATION_CREDENTIALS via os.environ at
+# module-import time, so it must run AFTER load_dotenv has populated the env.
+from config.settings import ALLOWED_ORIGINS, ENV
+
+# Importing firebase triggers fail-fast initialization. If Firestore cannot be
+# initialized (bad/missing credentials), this raises RuntimeError immediately,
+# before FastAPI registers any middleware or route.
 import config.firebase  # noqa: F401
 from config.logging import setup_logging
 
 setup_logging()
 
-from config.settings import ALLOWED_ORIGINS
 from auth.dependencies import get_current_admin
 
 
@@ -92,7 +100,7 @@ from utils.idempotency import IdempotencyMiddleware
 from utils.app_check import AppCheckMonitoringMiddleware
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
-# Allows the Streamlit frontend (localhost:8501) and any configured origin to call the API.
+# Allows configured Flutter Web and React/Vite frontend origins to call the API.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -143,12 +151,31 @@ from features.users.router import router as users_router
 from features.inventory.router import router as inventory_router
 from features.orders.router import router as orders_router
 from features.wallet.router import router as wallet_router
+from features.recommendations.router import router as recommendations_router
 from features.foodpulse.router import router as foodpulse_router
 
-app.include_router(auth_router,      prefix="/api/auth",      tags=["Auth"])
-app.include_router(users_router,     prefix="/api/users",     tags=["Users"])
-app.include_router(inventory_router, prefix="/api/inventory", tags=[" Inventory"])
-app.include_router(orders_router,    prefix="/api/orders",    tags=["Orders"])
-app.include_router(wallet_router,    prefix="/api/wallet",    tags=["Wallet"])
-app.include_router(foodpulse_router, prefix="/foodpulse",     tags=["FoodPulse"])
+app.include_router(auth_router,            prefix="/api/auth",            tags=["Auth"])
+app.include_router(users_router,           prefix="/api/users",           tags=["Users"])
+app.include_router(inventory_router,       prefix="/api/inventory",       tags=["Inventory"])
+app.include_router(orders_router,          prefix="/api/orders",          tags=["Orders"])
+app.include_router(wallet_router,          prefix="/api/wallet",          tags=["Wallet"])
+app.include_router(recommendations_router, prefix="/api/recommendations", tags=["Recommendations"])
+app.include_router(foodpulse_router,       prefix="/foodpulse",           tags=["FoodPulse"])
 
+
+# Only serve the Flutter Web build as static files in non-dev environments
+# (e.g. a self-contained Cloud Run deployment where the build artifact is bundled).
+# In dev, Flutter runs its own dev server independently via `flutter run`.
+# If build/web exists on a dev machine from a prior `flutter build web`, mounting it
+# here would silently intercept preflight OPTIONS requests before CORSMiddleware
+# can respond, stripping CORS headers and causing browser CORS failures.
+if ENV != "dev":
+    build_web_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "../../../build/web")
+    )
+    if os.path.exists(build_web_path):
+        app.mount(
+            "/",
+            StaticFiles(directory=build_web_path, html=True),
+            name="flutter",
+        )

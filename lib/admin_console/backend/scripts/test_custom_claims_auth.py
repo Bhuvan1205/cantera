@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 
 # Ensure backend root is on sys.path
-backend_dir = r"C:\Users\vinja\Documents\Flutter_projects\canteen_app\lib\admin_console\backend"
+backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, backend_dir)
 
 from auth.dependencies import get_current_admin
