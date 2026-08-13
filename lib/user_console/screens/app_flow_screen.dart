@@ -356,6 +356,7 @@ class _MenuPageState extends State<MenuPage> {
       'curry':                       'Menu item pictures/Mess/Mess/Curry.jpg',
       'sweet':                       'Menu item pictures/Mess/Mess/Sweet.jpg',
       'parota with kurma':           'Menu item pictures/Mess/Mess/Parota with kurma.jpg',
+      'canteen special (exclusive biryani)': 'Menu item pictures/Mess/Mess/veg-dum-biryani.webp',
       // ── Mess — Noodles & Rice ───────────────────────────────────────────────
       'veg noodles':                 'Menu item pictures/Mess/Mess/veg noodles.png',
       'veg manchuria':               'Menu item pictures/Mess/Mess/veg manchurain.png',

@@ -86,8 +86,14 @@ class _MenuScreenState extends State<MenuScreen> {
   @override
   void didUpdateWidget(covariant MenuScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.items != oldWidget.items) {
-      _fetchRecommendations();
+    if (widget.items != oldWidget.items && _recommendations.isNotEmpty) {
+      // Update recommendation objects to reflect latest stock/availability without fetching from Firestore
+      final newItemsMap = {for (var item in widget.items) item.name.toLowerCase().trim(): item};
+      setState(() {
+        _recommendations = _recommendations
+            .map((rec) => newItemsMap[rec.name.toLowerCase().trim()] ?? rec)
+            .toList();
+      });
     }
   }
 

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../theme/app_colors.dart';
+
 
 class RecommendationCard extends StatelessWidget {
   const RecommendationCard({

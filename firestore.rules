@@ -137,6 +137,14 @@ service cloud.firestore {
       allow write: if false;  // ADR-001: all writes via FastAPI backend
     }
 
+    // ── Recommendations ───────────────────────────────────────────────────────
+    // Reads:  any authenticated user (required for Canteen Buzz UI)
+    // Writes: BACKEND ONLY (Cloud Functions)
+    match /Recommendations/CanteenBuzz {
+      allow read: if signedIn();
+      allow write: if false;  // Backend Admin SDK only
+    }
+
     // ── Catch-all: deny everything else ──────────────────────────────────────
     // Any collection not explicitly listed above is denied to all clients.
     match /{document=**} {
