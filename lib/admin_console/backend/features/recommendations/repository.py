@@ -61,17 +61,55 @@ class RecommendationRepository:
                 .document(_CANTEEN_BUZZ_DOC)
                 .get()
             )
-            if not doc.exists:
-                return [], None
+            if doc.exists:
+                data = doc.to_dict() or {}
+                top_items = data.get("topItems", [])
+                if not isinstance(top_items, list):
+                    top_items = []
 
-            data = doc.to_dict() or {}
-            top_items = data.get("topItems", [])
-            if not isinstance(top_items, list):
-                top_items = []
+                raw_ts = data.get("updatedAt")
+                updated_at = str(raw_ts) if raw_ts is not None else None
 
-            raw_ts = data.get("updatedAt")
-            updated_at = str(raw_ts) if raw_ts is not None else None
+                return top_items, updated_at
+                
+            # ── Emergency Fallback ──────────────────────────────────────────────
+            # If the scheduled Cloud Function hasn't run or is blocked from deploying,
+            # we compute the latest 30 orders on-the-fly to guarantee recommendations.
+            return RecommendationRepository._compute_emergency_fallback()
+        except Exception:
+            return [], None
 
-            return top_items, updated_at
+    @staticmethod
+    def _compute_emergency_fallback() -> tuple[list[dict], str | None]:
+        try:
+            docs = (
+                db.collection(_ORDERS_COL)
+                .order_by("timestamp", direction=firestore.Query.DESCENDING)
+                .limit(30)
+                .stream()
+            )
+            freq: dict[str, int] = {}
+            for doc in docs:
+                order = doc.to_dict() or {}
+                items = order.get("items", [])
+                if not isinstance(items, list):
+                    continue
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    name_raw = item.get("name")
+                    if not name_raw or not isinstance(name_raw, str):
+                        continue
+                    name = name_raw.lower().strip()
+                    qty_raw = item.get("quantity", 1)
+                    try:
+                        qty = int(qty_raw)
+                    except (ValueError, TypeError):
+                        qty = 1
+                    freq[name] = freq.get(name, 0) + qty
+
+            sorted_items = sorted(freq.items(), key=lambda kv: (-kv[1], kv[0]))
+            top_items = [{"name": k, "count": v} for k, v in sorted_items[:5]]
+            return top_items, None
         except Exception:
             return [], None
