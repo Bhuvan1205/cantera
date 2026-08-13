@@ -36,13 +36,19 @@ def get_current_admin(
     Layer 2 — Firestore role check:
         Looks up Users/{uid} in Firestore and confirms isAdmin == True.
 
+    Authorization is fail-closed:
+        - Firestore unavailable → HTTP 503 (never grants access)
+        - Users/{uid} document missing → HTTP 403 (never grants access)
+        - isAdmin != True → HTTP 403
+
     Returns:
         A dict with Firebase decoded claims merged with Firestore user data,
         accessible via request state in any route that depends on this.
 
     Raises:
         HTTP 401 — invalid / expired token
-        HTTP 403 — valid token but user is not an admin (or doesn't exist)
+        HTTP 403 — valid token but user is not an admin (or Firestore record missing)
+        HTTP 503 — Firestore client unavailable
     """
     token = http_creds.credentials
     decoded = verify_firebase_token(token)
@@ -54,21 +60,48 @@ def get_current_admin(
             detail="Token is missing the uid claim.",
         )
 
-    # ── Fast Path: Firebase Custom Claims (0 Firestore reads) ─────────────────
-    if decoded.get("admin") is True or decoded.get("isAdmin") is True:
-        return {"uid": uid, **decoded, "user_data": {"isAdmin": True, "admin": True}}
-
-    # ── Fallback: Firestore document check (for legacy tokens) ───────────────
+    # ── Firestore availability check (fail-closed) ────────────────────────────
+    # Authorization always requires a live Firestore connection.
+    # A Firestore outage must never escalate to admin access.
     if db is None:
-        return {"uid": uid, **decoded, "user_data": {"isAdmin": True, "admin": True}}
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authorization service temporarily unavailable. Please try again later.",
+        )
 
+    # ── Fast Path: Firebase Custom Claims (0 Firestore reads) ─────────────────
+    # Custom claims are set by the syncUserClaims Cloud Function and are
+    # cryptographically bound to the verified token — safe to trust.
+    if decoded.get("admin") is True or decoded.get("isAdmin") is True:
+        # Even with valid custom claims, we verify the Firestore record exists
+        # to ensure the account has not been deleted or demoted since token issuance.
+        user_ref = db.collection("Users").document(uid)
+        user_snap = user_ref.get()
+        if not user_snap.exists:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. User account not found.",
+            )
+        user_data: dict = user_snap.to_dict() or {}
+        if not user_data.get("isAdmin", False):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. Administrator privileges required.",
+            )
+        return {"uid": uid, **decoded, "user_data": user_data}
+
+    # ── Authoritative Path: Firestore document check ───────────────────────────
     user_ref = db.collection("Users").document(uid)
     user_snap = user_ref.get()
 
+    # Missing Firestore document → 403 (never grants access)
     if not user_snap.exists:
-        return {"uid": uid, **decoded, "user_data": {"isAdmin": True, "admin": True}}
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. User account not found.",
+        )
 
-    user_data: dict = user_snap.to_dict() or {}
+    user_data = user_snap.to_dict() or {}
 
     if not user_data.get("isAdmin", False):
         raise HTTPException(
@@ -86,6 +119,7 @@ def get_current_sensitive_admin(
     """
     FastAPI dependency for sensitive admin actions (e.g. bank payouts, role changes).
     Enforces token revocation checks in production.
+    Authorization is fail-closed — Firestore unavailability returns 503, not admin access.
     """
     token = http_creds.credentials
     decoded = verify_sensitive_firebase_token(token)
@@ -97,8 +131,11 @@ def get_current_sensitive_admin(
             detail="Token is missing the uid claim.",
         )
 
-    if decoded.get("admin") is True or decoded.get("isAdmin") is True:
-        return {"uid": uid, **decoded, "user_data": {"isAdmin": True, "admin": True}}
+    if db is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authorization service temporarily unavailable. Please try again later.",
+        )
 
     user_ref = db.collection("Users").document(uid)
     user_snap = user_ref.get()
@@ -106,7 +143,7 @@ def get_current_sensitive_admin(
     if not user_snap.exists:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="User record not found in Firestore.",
+            detail="Access denied. User account not found.",
         )
 
     user_data: dict = user_snap.to_dict() or {}
@@ -162,6 +199,8 @@ def get_current_staff_or_admin(
     """
     FastAPI dependency that allows staff members or administrators.
     Checks custom claims (admin, staff, role) or Firestore Users/{uid} document.
+    Authorization is fail-closed — Firestore unavailability returns 503.
+    A missing user document always returns 403.
     """
     token = http_creds.credentials
     decoded = verify_firebase_token(token)
@@ -173,22 +212,44 @@ def get_current_staff_or_admin(
             detail="Token is missing the uid claim.",
         )
 
-    # Fast path: Custom Claims
+    if db is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authorization service temporarily unavailable. Please try again later.",
+        )
+
+    # Fast path: Custom Claims (cryptographically verified, set by Cloud Function)
     role = decoded.get("role")
     if decoded.get("admin") is True or decoded.get("staff") is True or role in ("admin", "staff"):
-        return {"uid": uid, **decoded, "user_data": {"role": role or "staff", "staff": True}}
+        # Verify Firestore record still exists — account may have been deleted
+        user_ref = db.collection("Users").document(uid)
+        user_snap = user_ref.get()
+        if not user_snap.exists:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. User account not found.",
+            )
+        user_data: dict = user_snap.to_dict() or {}
+        user_role = user_data.get("role")
+        is_admin = user_data.get("isAdmin", False) or user_data.get("admin", False)
+        if not (is_admin or user_role in ("admin", "staff")):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. Staff or administrator privileges required.",
+            )
+        return {"uid": uid, **decoded, "user_data": user_data}
 
-    # Fallback: Firestore check
+    # Authoritative path: Firestore check
     user_ref = db.collection("Users").document(uid)
     user_snap = user_ref.get()
 
     if not user_snap.exists:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="User record not found in Firestore.",
+            detail="Access denied. User account not found.",
         )
 
-    user_data: dict = user_snap.to_dict() or {}
+    user_data = user_snap.to_dict() or {}
     user_role = user_data.get("role")
     is_admin = user_data.get("isAdmin", False) or user_data.get("admin", False)
 

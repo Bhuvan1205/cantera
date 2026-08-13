@@ -82,15 +82,28 @@ async def login(payload: LoginRequest) -> LoginResponse:
     expires_in = data.get("expiresIn", "3600")
     email = data.get("email", payload.email)
 
-    # Verify Firestore admin status
-    is_admin = True
-    if db is not None:
-        try:
-            user_snap = db.collection("Users").document(uid).get()
-            if user_snap.exists:
-                is_admin = bool(user_snap.to_dict().get("isAdmin", False))
-        except Exception:
-            pass
+    # Verify Firestore admin status (fail-closed)
+    if db is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authorization service temporarily unavailable. Please try again later.",
+        )
+
+    try:
+        user_snap = db.collection("Users").document(uid).get()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Unable to verify admin status: {exc}",
+        )
+
+    if not user_snap.exists:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Authenticated successfully, but this account was not found in the system.",
+        )
+
+    is_admin = bool(user_snap.to_dict().get("isAdmin", False))
 
     if not is_admin:
         raise HTTPException(

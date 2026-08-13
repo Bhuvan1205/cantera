@@ -6,6 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import 'config/app_config.dart';
+import 'core/services/fcm_service.dart';
 import 'staff_console/screens/admin_dashboard_screen.dart';
 import 'firebase_options.dart';
 import 'user_console/screens/login_screen.dart';
@@ -84,6 +85,7 @@ class MyApp extends StatelessWidget {
 
         // ── Not logged in → Login screen ────────────────────────────────────
         if (user == null) {
+          FcmService.instance.dispose();
           return MaterialApp(
             debugShowCheckedModeBanner: false,
             scrollBehavior: AppScrollBehavior(),
@@ -93,6 +95,7 @@ class MyApp extends StatelessWidget {
         }
 
         // ── Logged in → fetch role then route (Single Source of Truth) ──────
+        FcmService.instance.initialize();
         return FutureBuilder<bool>(
           future: AuthService.isCurrentUserAdmin(),
           builder: (context, roleSnapshot) {
