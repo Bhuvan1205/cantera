@@ -1,16 +1,24 @@
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
-# ── Bootstrap: importing firebase triggers fail-fast initialization on startup ─
-# If Firestore cannot be initialized, this import raises RuntimeError and the
-# process aborts before FastAPI registers any middleware or route.
+# ── Bootstrap ────────────────────────────────────────────────────────────────
+# settings MUST be imported first: it calls load_dotenv(), which populates
+# os.environ with GOOGLE_APPLICATION_CREDENTIALS (and other vars) from .env.
+# config.firebase reads GOOGLE_APPLICATION_CREDENTIALS via os.environ at
+# module-import time, so it must run AFTER load_dotenv has populated the env.
+from config.settings import ALLOWED_ORIGINS, ENV
+
+# Importing firebase triggers fail-fast initialization. If Firestore cannot be
+# initialized (bad/missing credentials), this raises RuntimeError immediately,
+# before FastAPI registers any middleware or route.
 import config.firebase  # noqa: F401
 from config.logging import setup_logging
 
 setup_logging()
 
-from config.settings import ALLOWED_ORIGINS
 from auth.dependencies import get_current_admin
 
 
@@ -152,10 +160,15 @@ app.include_router(orders_router,         prefix="/api/orders",          tags=["
 app.include_router(wallet_router,         prefix="/api/wallet",          tags=["Wallet"])
 app.include_router(recommendations_router, prefix="/api/recommendations", tags=["Recommendations"])
 
-import os
-from fastapi.staticfiles import StaticFiles
 
-build_web_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../build/web"))
-if os.path.exists(build_web_path):
-    app.mount("/", StaticFiles(directory=build_web_path, html=True), name="flutter")
+# Only serve the Flutter Web build as static files in non-dev environments
+# (e.g. a self-contained Cloud Run deployment where the build artifact is bundled).
+# In dev, Flutter runs its own dev server independently via `flutter run`.
+# If build/web exists on a dev machine from a prior `flutter build web`, mounting it
+# here would silently intercept preflight OPTIONS requests before CORSMiddleware
+# can respond, stripping CORS headers and causing browser CORS failures.
+if ENV != "dev":
+    build_web_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../build/web"))
+    if os.path.exists(build_web_path):
+        app.mount("/", StaticFiles(directory=build_web_path, html=True), name="flutter")
 
