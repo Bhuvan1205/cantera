@@ -1,7 +1,8 @@
 from google.cloud import firestore
 from config.firebase import db
-from .schemas import UserProfile, WalletSummary, WalletTransaction, UserDetail, CreateUserProfileRequest, PickupPinInfo
+from .schemas import UserProfile, WalletSummary, WalletTransaction, UserDetail, CreateUserProfileRequest, RegisterFcmTokenRequest
 from datetime import datetime, timezone
+import hashlib
 
 
 class UserRepository:
@@ -97,15 +98,8 @@ class UserRepository:
             data_to_set["createdAt"] = firestore.SERVER_TIMESTAMP
             data_to_set["isAdmin"] = False
             data_to_set["role"] = "customer"
-            if payload.pickup_pin:
-                data_to_set["pickupPin"] = payload.pickup_pin.strip()
-                data_to_set["lastPinChange"] = firestore.SERVER_TIMESTAMP
             batch.set(user_ref, data_to_set)
         else:
-            existing = user_snap.to_dict() or {}
-            if payload.pickup_pin and not existing.get("pickupPin"):
-                data_to_set["pickupPin"] = payload.pickup_pin.strip()
-                data_to_set["lastPinChange"] = firestore.SERVER_TIMESTAMP
             batch.set(user_ref, data_to_set, merge=True)
 
         # Create wallet only if it doesn't already exist
@@ -128,53 +122,49 @@ class UserRepository:
         return UserProfile.from_firestore(uid, known_data)
 
 
+
+
     @staticmethod
-    def get_pickup_pin_info(uid: str) -> tuple[dict, PickupPinInfo]:
+    def upsert_fcm_token(uid: str, token: str) -> None:
         """
-        Returns the raw user doc dict and parsed PickupPinInfo.
+        Registers or refreshes an FCM push notification token for the given user.
+
+        Storage path: Users/{uid}/fcm_tokens/{sha256(token)}
+
+        The document ID is derived from a sha256 hash of the token, making the
+        operation deterministic and idempotent. Registering the same token twice
+        (e.g., on app restart or token refresh) always sets the same document.
+
+        Security:
+          - uid is always derived from the verified Firebase ID token on the
+            server side. It is never accepted from the client.
+          - Writing to another user's fcm_tokens subcollection is impossible
+            because the authenticated uid is injected by the dependency.
+          - Firestore security rules block direct client writes entirely
+            (ADR-001). This method uses the Admin SDK which bypasses rules.
         """
-        user_ref = db.collection(UserRepository._users_col).document(uid)
-        user_snap = user_ref.get()
-        if not user_snap.exists:
-            return {}, PickupPinInfo(has_pin=False, last_changed=None, can_change_in_days=0)
-
-        data = user_snap.to_dict() or {}
-        pin = data.get("pickupPin")
-        last_changed_ts = data.get("lastPinChange")
-
-        can_change_in_days = 0
-        last_changed_iso = None
-        if last_changed_ts:
-            if hasattr(last_changed_ts, "to_datetime"):
-                dt = last_changed_ts.to_datetime()
-            elif isinstance(last_changed_ts, datetime):
-                dt = last_changed_ts
-            else:
-                dt = datetime.now(timezone.utc)
-
-            last_changed_iso = dt.isoformat()
-            now = datetime.now(timezone.utc)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            days_passed = (now - dt).days
-            if days_passed < 30:
-                can_change_in_days = 30 - days_passed
-
-        return data, PickupPinInfo(
-            has_pin=bool(pin),
-            last_changed=last_changed_iso,
-            can_change_in_days=can_change_in_days,
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        token_ref = (
+            db.collection(UserRepository._users_col)
+            .document(uid)
+            .collection("fcm_tokens")
+            .document(token_hash)
         )
+        token_ref.set({
+            "token": token,
+            "updated_at": firestore.SERVER_TIMESTAMP,
+        })
 
     @staticmethod
-    def update_pickup_pin(uid: str, new_pin: str) -> None:
+    def delete_fcm_token(uid: str, token: str) -> None:
         """
-        Updates pickup PIN and updates lastPinChange to server timestamp.
+        Deterministically removes a specific FCM token for the given user.
         """
-        user_ref = db.collection(UserRepository._users_col).document(uid)
-        user_ref.set({
-            "pickupPin": new_pin,
-            "lastPinChange": firestore.SERVER_TIMESTAMP,
-            "updatedAt": firestore.SERVER_TIMESTAMP,
-        }, merge=True)
-
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        token_ref = (
+            db.collection(UserRepository._users_col)
+            .document(uid)
+            .collection("fcm_tokens")
+            .document(token_hash)
+        )
+        token_ref.delete()

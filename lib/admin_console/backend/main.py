@@ -100,7 +100,7 @@ from utils.idempotency import IdempotencyMiddleware
 from utils.app_check import AppCheckMonitoringMiddleware
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
-# Allows the Streamlit frontend (localhost:8501) and any configured origin to call the API.
+# Allows configured Flutter Web and React/Vite frontend origins to call the API.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -152,13 +152,15 @@ from features.inventory.router import router as inventory_router
 from features.orders.router import router as orders_router
 from features.wallet.router import router as wallet_router
 from features.recommendations.router import router as recommendations_router
+from features.foodpulse.router import router as foodpulse_router
 
-app.include_router(auth_router,           prefix="/api/auth",            tags=["Auth"])
-app.include_router(users_router,          prefix="/api/users",           tags=["Users"])
-app.include_router(inventory_router,      prefix="/api/inventory",       tags=["Inventory"])
-app.include_router(orders_router,         prefix="/api/orders",          tags=["Orders"])
-app.include_router(wallet_router,         prefix="/api/wallet",          tags=["Wallet"])
+app.include_router(auth_router,            prefix="/api/auth",            tags=["Auth"])
+app.include_router(users_router,           prefix="/api/users",           tags=["Users"])
+app.include_router(inventory_router,       prefix="/api/inventory",       tags=["Inventory"])
+app.include_router(orders_router,          prefix="/api/orders",          tags=["Orders"])
+app.include_router(wallet_router,          prefix="/api/wallet",          tags=["Wallet"])
 app.include_router(recommendations_router, prefix="/api/recommendations", tags=["Recommendations"])
+app.include_router(foodpulse_router,       prefix="/foodpulse",           tags=["FoodPulse"])
 
 
 # Only serve the Flutter Web build as static files in non-dev environments
@@ -168,7 +170,12 @@ app.include_router(recommendations_router, prefix="/api/recommendations", tags=[
 # here would silently intercept preflight OPTIONS requests before CORSMiddleware
 # can respond, stripping CORS headers and causing browser CORS failures.
 if ENV != "dev":
-    build_web_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../build/web"))
+    build_web_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "../../../build/web")
+    )
     if os.path.exists(build_web_path):
-        app.mount("/", StaticFiles(directory=build_web_path, html=True), name="flutter")
-
+        app.mount(
+            "/",
+            StaticFiles(directory=build_web_path, html=True),
+            name="flutter",
+        )

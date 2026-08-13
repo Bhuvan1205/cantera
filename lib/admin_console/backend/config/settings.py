@@ -27,7 +27,7 @@ PORT: int = int(os.getenv("PORT", 8000))
 # Add your local Flutter Web origin here or set ALLOWED_ORIGINS in .env.
 _raw_origins = os.getenv(
     "ALLOWED_ORIGINS",
-    "http://localhost:8080,http://localhost:8081,http://localhost:5000,http://localhost:3000,http://localhost:8501",
+    "http://localhost:8080,http://localhost:5173",
 )
 ALLOWED_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",")]
 

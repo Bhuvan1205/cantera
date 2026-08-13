@@ -19,28 +19,55 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _pinController = TextEditingController();
 
   bool _isLoading = false;
   bool _obscurePassword = true;
   String? _errorMessage;
 
+  /// True when Firebase Auth account was created but profile API call failed.
+  /// In this state we show a retry option rather than a full re-registration.
+  bool _profileSyncFailed = false;
+
+  /// Registers a new user or retries profile synchronization after a previous failure.
+  ///
+  /// Firebase Auth and Firestore cannot participate in the same transaction.
+  /// The approach here is:
+  ///   1. Create Firebase Auth account (or detect an existing one on retry).
+  ///   2. Call POST /api/users/profile (idempotent — safe to retry).
+  ///   3. If step 2 fails, surface a recoverable error with a Retry button.
+  ///
+  /// Firestore Users/{uid} is the authoritative profile store.
+  /// Firebase Auth displayName is NOT written here — it is not used as a
+  /// source of truth for any app-level logic.
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _profileSyncFailed = false;
     });
 
     try {
-      final credential = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
+      User? user;
 
-      final user = credential.user;
+      // ── Step 1: Firebase Auth account creation ──────────────────────────────
+      // If the user already has an authenticated session (e.g. retry after
+      // profile sync failure), skip createUser and use the existing account.
+      final existingUser = FirebaseAuth.instance.currentUser;
+      if (existingUser != null &&
+          existingUser.email?.toLowerCase() == _emailController.text.trim().toLowerCase()) {
+        // Already authenticated as this email — go directly to profile sync.
+        user = existingUser;
+      } else {
+        final credential = await FirebaseAuth.instance
+            .createUserWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
+        user = credential.user;
+      }
+
       if (user == null) {
         throw FirebaseAuthException(
           code: 'user-not-created',
@@ -48,14 +75,36 @@ class _RegisterScreenState extends State<RegisterScreen> {
         );
       }
 
-      await user.updateDisplayName(_nameController.text.trim());
-
-      await ApiClient.instance.post('/api/users/profile', body: {
-        'name': _nameController.text.trim(),
-        'email': _emailController.text.trim(),
-        'pickup_pin': _pinController.text.trim(),
-      });
-
+      // ── Step 2: Profile synchronization (idempotent) ────────────────────────
+      // POST /api/users/profile creates or updates Users/{uid} and initializes
+      // the wallet atomically. It is safe to call multiple times — retrying
+      // will not create duplicates.
+      try {
+        await ApiClient.instance.post('/api/users/profile', body: {
+          'name': _nameController.text.trim(),
+          'email': _emailController.text.trim(),
+        });
+      } on ApiException catch (e) {
+        // Profile sync failed — Firebase Auth account exists but Firestore
+        // profile was not created. Surface a recoverable error.
+        if (!mounted) return;
+        setState(() {
+          _profileSyncFailed = true;
+          _errorMessage =
+              'Account created, but profile setup failed: ${e.message}\n'
+              'Tap "Retry Setup" to try again.';
+        });
+        return;
+      } catch (_) {
+        if (!mounted) return;
+        setState(() {
+          _profileSyncFailed = true;
+          _errorMessage =
+              'Account created, but profile setup failed due to a network error.\n'
+              'Tap "Retry Setup" to try again.';
+        });
+        return;
+      }
 
       if (!mounted) return;
 
@@ -75,12 +124,50 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  /// Retries only the profile synchronization step.
+  /// Called when _profileSyncFailed is true — the Firebase Auth account
+  /// already exists so we skip step 1 entirely.
+  Future<void> _retryProfileSync() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+      _profileSyncFailed = false;
+    });
+
+    try {
+      await ApiClient.instance.post('/api/users/profile', body: {
+        'name': _nameController.text.trim(),
+        'email': _emailController.text.trim(),
+      });
+
+      if (!mounted) return;
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+    } on ApiException catch (e) {
+      setState(() {
+        _profileSyncFailed = true;
+        _errorMessage =
+            'Profile setup still failing: ${e.message}\n'
+            'Tap "Retry Setup" to try again.';
+      });
+    } catch (_) {
+      setState(() {
+        _profileSyncFailed = true;
+        _errorMessage =
+            'Profile setup failed due to a network error.\n'
+            'Tap "Retry Setup" to try again.';
+      });
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   @override
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
-    _pinController.dispose();
     super.dispose();
   }
 
@@ -210,25 +297,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                     const SizedBox(height: 20),
 
-                    // ── Pickup PIN ──────────────────────────────────────────
-                    LabeledInputField(
-                      label: 'Pickup PIN',
-                      hint: '4-digit code (e.g. 1234)',
-                      icon: Icons.pin_rounded,
-                      controller: _pinController,
-                      keyboardType: TextInputType.number,
-                      textInputAction: TextInputAction.done,
-                      onFieldSubmitted: (_) => _register(),
-                      validator: (value) {
-                        final text = value?.trim() ?? '';
-                        if (text.isEmpty) return 'Enter a pickup PIN';
-                        if (text.length != 4 || int.tryParse(text) == null) {
-                          return 'PIN must be exactly 4 digits';
-                        }
-                        return null;
-                      },
-                    ),
-
                     // ── Error banner ───────────────────────────────────────
                     if (_errorMessage != null) ...[
                       const SizedBox(height: 16),
@@ -236,15 +304,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ],
                     const SizedBox(height: 32),
 
-                    // ── Register button ────────────────────────────────────
+                    // ── Register / Retry button ────────────────────────────
                     SizedBox(
                       height: 56,
                       child: ElevatedButton(
                         key: AppKeys.registerSubmitButton,
-                        onPressed: _isLoading ? null : _register,
+                        onPressed: _isLoading
+                            ? null
+                            : _profileSyncFailed
+                                ? _retryProfileSync
+                                : _register,
                         child: _isLoading
                             ? const _ButtonSpinner()
-                            : const Text('Create Account'),
+                            : Text(_profileSyncFailed ? 'Retry Setup' : 'Create Account'),
                       ),
                     ),
                     const SizedBox(height: 24),

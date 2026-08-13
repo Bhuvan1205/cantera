@@ -26,6 +26,11 @@ Fail-Fast Contract:
 import os
 import sys
 import logging
+from dotenv import load_dotenv
+
+# Load .env from the admin_console root (one level above backend/)
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+load_dotenv(os.path.join(_BASE_DIR, ".env"))
 
 import firebase_admin
 from firebase_admin import credentials, firestore

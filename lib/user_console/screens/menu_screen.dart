@@ -4,6 +4,8 @@ import '../../theme/app_colors.dart';
 import '../services/recommendation_service.dart';
 import '../widgets/app_bottom_nav.dart';
 import '../widgets/recommendation_card.dart';
+import '../../foodpulse/widgets/poll_modal.dart';
+import '../../foodpulse/widgets/suggestion_fab_widget.dart';
 
 // ─── DATA MODEL ──────────────────────────────────────────────────────────────
 
@@ -192,6 +194,12 @@ class _MenuScreenState extends State<MenuScreen> {
                     cart: widget.cart,
                     onViewCart: widget.onCartTap,
                   ),
+                  // FoodPulse Suggestion Floating Action Button (FAB)
+                  Positioned(
+                    right: 20,
+                    bottom: widget.cart.isNotEmpty ? 160 : 100, // Elevated above bottom nav / cart banner
+                    child: const SuggestionFabWidget(),
+                  ),
                 ],
               ),
       ),
@@ -216,6 +224,33 @@ class _MenuScreenState extends State<MenuScreen> {
         ),
       ),
       actions: [
+        IconButton(
+          onPressed: () => PollModal.show(context),
+          icon: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              const Icon(
+                Icons.poll_rounded,
+                color: AppColors.primary,
+                size: 26,
+              ),
+              Positioned(
+                right: -2,
+                top: -2,
+                child: Container(
+                  width: 9,
+                  height: 9,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF7C3AED), // Purple active notification dot
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppColors.bg, width: 1.5),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          tooltip: 'Active Community Poll',
+        ),
         Padding(
           padding: const EdgeInsets.only(right: 8.0),
           child: IconButton(
@@ -313,7 +348,7 @@ class _MenuScreenState extends State<MenuScreen> {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: widget.categories.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final category = widget.categories[index];
           final normalizedCategory =
@@ -554,7 +589,7 @@ class _FoodCard extends StatelessWidget {
                                     ),
                                   );
                                 },
-                                errorBuilder: (_, _, _) => Container(
+                                errorBuilder: (context, error, stackTrace) => Container(
                                   color: const Color(0xFFF3EDE4),
                                   child: Icon(
                                     Icons.broken_image_outlined,
@@ -571,7 +606,7 @@ class _FoodCard extends StatelessWidget {
                                 // resolution. 220 = 110 logical px × 2× density.
                                 cacheWidth: 220,
                                 cacheHeight: 220,
-                                errorBuilder: (_, _, _) => Container(
+                                errorBuilder: (context, error, stackTrace) => Container(
                                   color: const Color(0xFFF3EDE4),
                                   child: Icon(
                                     Icons.broken_image_outlined,

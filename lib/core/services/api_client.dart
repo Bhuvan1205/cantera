@@ -136,10 +136,11 @@ class ApiClient {
   }
 
   /// Performs a DELETE request
-  Future<dynamic> delete(String path, {Map<String, String>? headers}) async {
+  Future<dynamic> delete(String path, {dynamic body, Map<String, String>? headers}) async {
     final uri = _buildUri(path);
     final reqHeaders = await _getHeaders(extraHeaders: headers);
-    final response = await http.delete(uri, headers: reqHeaders);
+    final encodedBody = body != null ? jsonEncode(body) : null;
+    final response = await http.delete(uri, headers: reqHeaders, body: encodedBody);
     return _handleResponse(response);
   }
 }
