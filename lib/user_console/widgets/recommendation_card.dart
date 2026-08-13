@@ -135,7 +135,7 @@ class RecommendationCard extends StatelessWidget {
             ),
           );
         },
-        errorBuilder: (_, _, _) => const Icon(
+        errorBuilder: (context, error, stackTrace) => const Icon(
           Icons.broken_image_outlined,
           size: 24,
           color: Color(0xFF2E7D32),
@@ -148,7 +148,7 @@ class RecommendationCard extends StatelessWidget {
       fit: BoxFit.cover,
       cacheWidth: 100,
       cacheHeight: 100,
-      errorBuilder: (_, _, _) => const Icon(
+      errorBuilder: (context, error, stackTrace) => const Icon(
         Icons.broken_image_outlined,
         size: 24,
         color: Color(0xFF2E7D32),
