@@ -15,6 +15,10 @@ from .schemas import (
     CheckoutResponse,
     CheckoutTokenDetail,
 )
+from .repository import _calc_prep_units
+
+# Categories that participate in Smart Preparation queue flow
+_SMART_PREP_CATS = {"mess", "continental"}
 
 
 def _trace_backend_step(step: str, exception: str = "None") -> None:
@@ -62,36 +66,11 @@ def _debit_wallet_tx(
     """Atomic wallet debit transaction."""
     snapshot = wallet_ref.get(transaction=transaction)
     if not snapshot.exists:
-        is_emulator = bool(os.getenv("FIRESTORE_EMULATOR_HOST"))
-        if is_emulator:
-            # Auto-initialize user wallet in emulator mode for seamless end-to-end testing
-            initial_balance = 1000.0
-            new_balance = initial_balance - amount
-            transaction.set(wallet_ref, {
-                "balance": new_balance,
-                "total_spent": amount,
-                "created_at": firestore.SERVER_TIMESTAMP,
-                "updated_at": firestore.SERVER_TIMESTAMP,
-            })
-            transaction.set(tx_ref, {
-                "user_uid": user_uid,
-                "type": "debit",
-                "amount": amount,
-                "reference_id": order_id,
-                "description": f"Order #{order_id[:8]}",
-                "status": "completed",
-                "created_at": firestore.SERVER_TIMESTAMP,
-            })
-            return
         raise ValueError("Wallet does not exist. Please initialize wallet first.")
 
     wallet_data = snapshot.to_dict() or {}
     balance = float(wallet_data.get("balance") or 0.0)
     if balance < amount:
-        is_emulator = bool(os.getenv("FIRESTORE_EMULATOR_HOST"))
-        if is_emulator:
-            # In emulator mode, top up balance automatically
-            balance = balance + 1000.0
         raise ValueError(
             f"Insufficient wallet balance. Available: ₹{balance:.2f}, Required: ₹{amount:.2f}"
         )
@@ -186,10 +165,14 @@ class CheckoutService:
             item_dict = {
                 "menu_item_id": item.menu_item_id,
                 "name": item_name,
+                # item_name is the canonical key read by queue logic in repository.start_preparation
+                "item_name": item_name,
                 "price": price,
                 "quantity": item.quantity,
                 "category": category,
                 "current_stock": stock_qty,
+                # prep_units is required by queue insertion; 0.0 for non-Smart-Prep categories
+                "prep_units": _calc_prep_units(item.quantity) if category in _SMART_PREP_CATS else 0.0,
             }
             resolved_items.append(item_dict)
             category_groups.setdefault(category, []).append(item_dict)

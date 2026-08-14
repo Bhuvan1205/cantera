@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'dart:async';
 import '../services/order_service.dart';
@@ -40,9 +41,8 @@ class OrderDetailScreen extends StatelessWidget {
     this.onCartTap,
     this.onRefundRequest,
     this.isRefundPending = false,
-    this.hasMessItem = false,
+    this.smartPrepCategories = const [],
     this.hasNonMessItem = true,
-    this.messTokenId,
     this.overallStatus = 'active',
   });
 
@@ -64,9 +64,9 @@ class OrderDetailScreen extends StatelessWidget {
   /// True when a refund request is already pending for this order.
   final bool isRefundPending;
 
-  final bool hasMessItem;
+  /// List of Smart Prep eligible categories present in this order (e.g. ['mess', 'continental']).
+  final List<String> smartPrepCategories;
   final bool hasNonMessItem;
-  final String? messTokenId;
   final String overallStatus;
 
   bool get _isDelivered => status.toLowerCase() == 'delivered';
@@ -112,11 +112,12 @@ class OrderDetailScreen extends StatelessWidget {
                           ),
                         ),
               ),
-            if (hasMessItem && messTokenId != null) ...[
+            // Render one Smart Preparation section per eligible category
+            for (final category in smartPrepCategories) ...[
               const SizedBox(height: 14),
               _SmartPreparationSection(
                 orderId: orderId,
-                tokenId: messTokenId!,
+                category: category,
               ),
             ],
             const SizedBox(height: 14),
@@ -628,20 +629,34 @@ class _RefundButtonState extends State<_RefundButton> {
 class _SmartPreparationSection extends StatelessWidget {
   const _SmartPreparationSection({
     required this.orderId,
-    required this.tokenId,
+    required this.category,
   });
 
   final String orderId;
-  final String tokenId;
+  /// The Smart Prep category: 'mess' or 'continental'.
+  /// This is also the Firestore token document ID.
+  final String category;
+
+  String get _sectionTitle {
+    switch (category) {
+      case 'mess':
+        return 'Mess Preparation';
+      case 'continental':
+        return 'Continental Preparation';
+      default:
+        return 'Smart Preparation';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      // Token document ID == category string (e.g. 'mess', 'continental')
       stream: FirebaseFirestore.instance
           .collection('Orders')
           .doc(orderId)
           .collection('tokens')
-          .doc(tokenId)
+          .doc(category)
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData || !snapshot.data!.exists) {
@@ -673,9 +688,9 @@ class _SmartPreparationSection extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Smart Preparation',
-                style: TextStyle(
+              Text(
+                _sectionTitle,
+                style: const TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w700,
                   color: AppColors.textPrimary,
@@ -693,7 +708,7 @@ class _SmartPreparationSection extends StatelessWidget {
 
   Widget _buildStateContent(BuildContext context, String tokenStatus, Map<String, dynamic> data) {
     if (tokenStatus == 'placed') {
-      return _PlacedStateView(orderId: orderId);
+      return _PlacedStateView(orderId: orderId, category: category);
     } else if (tokenStatus == 'preparing') {
       return const _PreparingStateView();
     } else if (tokenStatus == 'ready_for_pickup') {
@@ -712,8 +727,12 @@ class _SmartPreparationSection extends StatelessWidget {
 }
 
 class _PlacedStateView extends StatefulWidget {
-  const _PlacedStateView({required this.orderId});
+  const _PlacedStateView({
+    required this.orderId,
+    required this.category,
+  });
   final String orderId;
+  final String category;
 
   @override
   State<_PlacedStateView> createState() => _PlacedStateViewState();
@@ -776,8 +795,11 @@ class _PlacedStateViewState extends State<_PlacedStateView> {
 
     setState(() => _isLoading = true);
     try {
-      await OrderService.startPreparation(orderId: widget.orderId);
-      // Wait for Firestore listener to automatically update UI.
+      await OrderService.startPreparation(
+        orderId: widget.orderId,
+        category: widget.category,
+      );
+      // UI is driven by the Firestore token_status stream — no local state change needed.
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -851,11 +873,12 @@ class _PreparingStateView extends StatelessWidget {
         child: Column(
           children: [
             SizedBox(
-              width: 32,
-              height: 32,
-              child: CircularProgressIndicator(
+              width: 48,
+              height: 48,
+              child: Icon(
+                Icons.outdoor_grill_rounded,
                 color: Color(0xFFB87333),
-                strokeWidth: 3,
+                size: 40,
               ),
             ),
             SizedBox(height: 16),

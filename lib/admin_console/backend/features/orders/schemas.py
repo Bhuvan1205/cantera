@@ -160,6 +160,32 @@ class UpdateOrderStatusRequest(BaseModel):
     )
 
 
+# Valid Smart Preparation categories
+SMART_PREP_CATEGORIES = {"mess", "continental"}
+
+
+class StartPreparationRequest(BaseModel):
+    """
+    Payload for POST /api/orders/{order_id}/start-preparation.
+    Specifies which Smart Preparation token/category to transition: placed → preparing.
+    """
+    category: str = Field(
+        "mess",
+        description="Smart Prep category: mess | continental",
+    )
+
+
+class MarkPreparedRequest(BaseModel):
+    """
+    Payload for POST /api/orders/{order_id}/mark-prepared.
+    Specifies which Smart Preparation token/category to transition: preparing → ready_for_pickup.
+    """
+    category: str = Field(
+        "mess",
+        description="Smart Prep category: mess | continental",
+    )
+
+
 class CheckoutCartItem(BaseModel):
     """Item submitted for checkout orchestration."""
     menu_item_id: str = Field(..., description="Firestore Menu document ID")

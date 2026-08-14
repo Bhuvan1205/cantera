@@ -179,7 +179,7 @@ class _StaffOrdersTabState extends State<StaffOrdersTab> {
           if (_selectedFilter == 'placed') {
             if (status != 'placed') return false;
           } else if (_selectedFilter == 'preparing') {
-            if (status != 'preparing') return false;
+            if (status != 'preparing' && status != 'ready_for_pickup') return false;
           } else {
             if (status != 'delivered') return false;
           }
@@ -190,7 +190,7 @@ class _StaffOrdersTabState extends State<StaffOrdersTab> {
 
             final catStatus = (catTokens[_selectedCounter]['status'] as String? ?? 'placed').toLowerCase();
             if (_selectedFilter == 'placed' && catStatus != 'placed') return false;
-            if (_selectedFilter == 'preparing' && catStatus != 'preparing') return false;
+            if (_selectedFilter == 'preparing' && catStatus != 'preparing' && catStatus != 'ready_for_pickup') return false;
             if (_selectedFilter == 'delivered' && catStatus != 'delivered') return false;
           }
 

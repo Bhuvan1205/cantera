@@ -182,8 +182,12 @@ class OrderService {
     );
   }
 
-  /// Starts meal preparation for a placed Mess order.
-  static Future<void> startPreparation({required String orderId}) async {
+  /// Starts meal preparation for a placed Mess or Continental order token.
+  /// [category] must be 'mess' or 'continental'.
+  static Future<void> startPreparation({
+    required String orderId,
+    required String category,
+  }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw Exception('User is not authenticated.');
 
@@ -197,6 +201,7 @@ class OrderService {
         'Authorization': 'Bearer $idToken',
         'Idempotency-Key': IdempotencyUtils.generateKey(),
       },
+      body: jsonEncode({'category': category}),
     );
 
     if (response.statusCode != 200 && response.statusCode != 201) {

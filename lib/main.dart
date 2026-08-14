@@ -35,16 +35,7 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  const bool useEmulator = bool.fromEnvironment('USE_EMULATOR', defaultValue: false);
-  if (useEmulator) {
-    final host = (kIsWeb || defaultTargetPlatform != TargetPlatform.android)
-        ? '127.0.0.1'
-        : '10.0.2.2';
-    FirebaseFirestore.instance.useFirestoreEmulator(host, 9090, sslEnabled: false);
-    debugPrint('[Firebase] Connected to Firestore emulator at $host:9090');
-  } else {
-    debugPrint('[Firebase] Connected to Production Cloud Firestore');
-  }
+  debugPrint('[Firebase] Connected to Production Cloud Firestore');
 
   FirebaseFirestore.instance.settings = const Settings(
     persistenceEnabled: true,
