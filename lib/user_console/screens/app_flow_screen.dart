@@ -334,7 +334,7 @@ class _MenuPageState extends State<MenuPage> {
   Future<void> _openGroupOrder() async {
     if (_isHydratingGroup) return;
     if (_groupOrder?.isActive == true) {
-      await Navigator.of(context).push(MaterialPageRoute(builder: (_) => GroupOrderDetailsScreen(groupId: _groupOrder!.groupId)));
+      await Navigator.of(context).push(MaterialPageRoute(builder: (_) => GroupOrderDetailsScreen(groupId: _groupOrder!.groupId, onLeave: _onLeaveGroupLocally)));
       return;
     }
 
@@ -355,7 +355,7 @@ class _MenuPageState extends State<MenuPage> {
                     key: AppKeys.groupOrderJoinField,
                     controller: code,
                     textCapitalization: TextCapitalization.characters,
-                    decoration: const InputDecoration(labelText: 'Group code (or leave blank to start)'),
+                    decoration: const InputDecoration(labelText: 'Group Code'),
                     enabled: !isLoading,
                   ),
                   if (isLoading)
@@ -366,61 +366,85 @@ class _MenuPageState extends State<MenuPage> {
                 ],
               ),
               actions: [
-                TextButton(
-                  onPressed: isLoading ? null : () => Navigator.pop(dialogContext, false),
-                  child: const Text('Cancel'),
-                ),
-                TextButton(
-                  onPressed: isLoading ? null : () async {
-                    setState(() { isLoading = true; });
-                    try {
-                      final migration = cart.entries.map((e) => {'menu_item_id': e.key, 'quantity': e.value['quantity']}).toList();
-                      final group = await GroupOrderService.instance.create(items: migration);
-                      if (!mounted) return;
-                      if (_groupOrder != null) GroupMutationQueueRegistry.instance.dispose(_groupOrder!.groupId);
-                      this.setState(() { _groupOrder = group; cart.clear(); groupCart.clear(); });
-                      _subscribeToGroup(group);
-                      Navigator.pop(dialogContext, true);
-                    } catch (e) {
-                      setState(() { isLoading = false; });
-                      final errorStr = e.toString().toLowerCase();
-                      if (errorStr.contains('already participate') || errorStr.contains('active group order')) {
-                        ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('You are already participating in an active group order.'), backgroundColor: AppColors.error));
-                        Navigator.pop(dialogContext, false);
-                      } else {
-                        ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('Unable to start group order. Please try again.'), backgroundColor: AppColors.error));
-                      }
-                    }
-                  },
-                  child: const Text('Start'),
-                ),
-                ElevatedButton(
-                  onPressed: isLoading ? null : () async {
-                    if (code.text.trim().length < 6) {
-                      ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('Please enter a valid 6-character group code.'), backgroundColor: AppColors.error));
-                      return;
-                    }
-                    setState(() { isLoading = true; });
-                    try {
-                      final migration = cart.entries.map((e) => {'menu_item_id': e.key, 'quantity': e.value['quantity']}).toList();
-                      final group = await GroupOrderService.instance.join(code.text, items: migration);
-                      if (!mounted) return;
-                      if (_groupOrder != null) GroupMutationQueueRegistry.instance.dispose(_groupOrder!.groupId);
-                      this.setState(() { _groupOrder = group; cart.clear(); groupCart.clear(); });
-                      _subscribeToGroup(group);
-                      Navigator.pop(dialogContext, true);
-                    } catch (e) {
-                      setState(() { isLoading = false; });
-                      final errorStr = e.toString().toLowerCase();
-                      if (errorStr.contains('already participate') || errorStr.contains('active group order')) {
-                        ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('You are already participating in an active group order.'), backgroundColor: AppColors.error));
-                        Navigator.pop(dialogContext, false);
-                      } else {
-                        ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(content: Text('Group order failed: $e'), backgroundColor: AppColors.error));
-                      }
-                    }
-                  },
-                  child: const Text('Join'),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
+                      onPressed: isLoading ? null : () async {
+                        setState(() { isLoading = true; });
+                        try {
+                          final migration = cart.entries.map((e) => {'menu_item_id': e.key, 'quantity': e.value['quantity']}).toList();
+                          final group = await GroupOrderService.instance.create(items: migration);
+                          if (!mounted) return;
+                          if (_groupOrder != null) GroupMutationQueueRegistry.instance.dispose(_groupOrder!.groupId);
+                          this.setState(() { _groupOrder = group; cart.clear(); groupCart.clear(); });
+                          _subscribeToGroup(group);
+                          Navigator.pop(dialogContext, true);
+                        } catch (e) {
+                          setState(() { isLoading = false; });
+                          final errorStr = e.toString().toLowerCase();
+                          if (errorStr.contains('already participate') || errorStr.contains('active group order')) {
+                            ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('You are already participating in an active group order.'), backgroundColor: AppColors.error));
+                            Navigator.pop(dialogContext, false);
+                          } else {
+                            ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('Unable to start group order. Please try again.'), backgroundColor: AppColors.error));
+                          }
+                        }
+                      },
+                      child: const Text('Start'),
+                    ),
+                    const SizedBox(height: 8),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.accent,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
+                      onPressed: isLoading ? null : () async {
+                        if (code.text.trim().length < 6) {
+                          ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('Please enter a valid 6-character group code.'), backgroundColor: AppColors.error));
+                          return;
+                        }
+                        setState(() { isLoading = true; });
+                        try {
+                          final migration = cart.entries.map((e) => {'menu_item_id': e.key, 'quantity': e.value['quantity']}).toList();
+                          final group = await GroupOrderService.instance.join(code.text, items: migration);
+                          if (!mounted) return;
+                          if (_groupOrder != null) GroupMutationQueueRegistry.instance.dispose(_groupOrder!.groupId);
+                          this.setState(() { _groupOrder = group; cart.clear(); groupCart.clear(); });
+                          _subscribeToGroup(group);
+                          Navigator.pop(dialogContext, true);
+                        } catch (e) {
+                          setState(() { isLoading = false; });
+                          final errorStr = e.toString().toLowerCase();
+                          if (errorStr.contains('already participate') || errorStr.contains('active group order')) {
+                            ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('You are already participating in an active group order.'), backgroundColor: AppColors.error));
+                            Navigator.pop(dialogContext, false);
+                          } else {
+                            ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(content: Text('Group order failed: $e'), backgroundColor: AppColors.error));
+                          }
+                        }
+                      },
+                      child: const Text('Join'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.error,
+                      ),
+                      onPressed: isLoading ? null : () => Navigator.pop(dialogContext, false),
+                      child: const Text('Cancel'),
+                    ),
+                  ],
                 ),
               ],
             );

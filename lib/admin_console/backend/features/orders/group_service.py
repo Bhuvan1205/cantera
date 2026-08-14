@@ -75,6 +75,7 @@ class GroupOrderService:
         if GroupOrderService._active_group_for(uid):
             _error('You already participate in an active group order.', status.HTTP_409_CONFLICT)
         now, group_id = _now(), f'grp_{uuid.uuid4().hex[:16]}'
+        user_name = _resolve_user_name(uid, caller, payload.user_name)
         # Reservation creation is transactional: document IDs are the codes,
         # so concurrent creators cannot claim the same code.
         for _ in range(12):
@@ -86,7 +87,6 @@ class GroupOrderService:
             def reserve(transaction):
                 if reservation.get(transaction=transaction).exists:
                     return False
-                user_name = _resolve_user_name(uid, caller, payload.user_name)
                 transaction.set(reservation, {'groupId': group_id, 'createdAt': firestore.SERVER_TIMESTAMP})
                 transaction.set(group_ref, {
                     'groupId': group_id, 'groupCode': code, 'initiatorUid': uid,
@@ -107,6 +107,7 @@ class GroupOrderService:
         uid, code = caller['uid'], payload.group_code.upper()
         if GroupOrderService._active_group_for(uid):
             _error('You already participate in an active group order.', status.HTTP_409_CONFLICT)
+        user_name = _resolve_user_name(uid, caller, payload.user_name)
         reservation = db.collection('group_order_codes').document(code).get()
         if not reservation.exists:
             _error('Group code was not found.', status.HTTP_404_NOT_FOUND)
@@ -120,7 +121,6 @@ class GroupOrderService:
             if data.get('status') != 'OPEN': _error('This group is no longer open.', 409)
             if data.get('expiresAt') and data['expiresAt'] <= _now(): _error('This group has expired.', 409)
             if uid in data.get('memberUids', []): _error('You already joined this group.', 409)
-            user_name = _resolve_user_name(uid, caller, payload.user_name)
             members = data.get('members', []) + [{'uid': uid, 'name': user_name}]
             transaction.update(ref, {'members': members, 'memberUids': data.get('memberUids', []) + [uid],
                                     'items': data.get('items', []) + _normalise_items(payload.items, uid), 'updatedAt': firestore.SERVER_TIMESTAMP})
