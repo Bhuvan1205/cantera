@@ -13,7 +13,11 @@ import { UserRefreshClient } from "google-auth-library";
 
 const PROJECT_ID = "canteen-app-e1c8d";
 const COLLECTION = "Menu";  // Flutter reads 'Menu' (capital M) — app_flow_screen.dart:30, admin_menu_screen.dart:71
-const BASE_URL = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
+
+const IS_EMULATOR = process.env.SEED_TARGET === "emulator";
+const PRODUCTION_BASE_URL = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
+const EMULATOR_BASE_URL = `http://127.0.0.1:9090/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
+const BASE_URL = IS_EMULATOR ? EMULATOR_BASE_URL : PRODUCTION_BASE_URL;
 
 // Firebase CLI OAuth2 credentials (public client, stored locally after `firebase login`)
 const FIREBASE_CLIENT_ID =
@@ -25,6 +29,7 @@ const REFRESH_TOKEN =
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 async function getAccessToken() {
+  if (IS_EMULATOR) return "owner";
   const client = new UserRefreshClient(
     FIREBASE_CLIENT_ID,
     FIREBASE_CLIENT_SECRET,
@@ -61,9 +66,7 @@ async function listDocumentNames(token) {
       `${BASE_URL}/${COLLECTION}?pageSize=300&mask.fieldPaths=name` +
       (pageToken ? `&pageToken=${pageToken}` : "");
 
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
 
     if (!res.ok) {
       const text = await res.text();
@@ -84,11 +87,17 @@ async function listDocumentNames(token) {
 
 /** DELETE a single document by full resource name */
 async function deleteDocument(name, token) {
-  const url = `https://firestore.googleapis.com/v1/${name}`;
-  const res = await fetch(url, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const origin = IS_EMULATOR ? "http://127.0.0.1:9090/v1" : "https://firestore.googleapis.com/v1";
+  const url = `${origin}/${name}`;
+
+  if (IS_EMULATOR && url.includes("firestore.googleapis.com")) {
+    throw new Error("Target mismatch: attempted to delete production document in emulator mode");
+  }
+  if (!IS_EMULATOR && url.includes("127.0.0.1")) {
+    throw new Error("Target mismatch: attempted to delete emulator document in production mode");
+  }
+
+  const res = await fetch(url, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok && res.status !== 404) {
     throw new Error(`Delete failed (${res.status}): ${await res.text()}`);
   }
@@ -295,10 +304,25 @@ const menuItems = [
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
+  if (IS_EMULATOR) {
+    console.log("========================================");
+    console.log("FIRESTORE SEED TARGET: LOCAL EMULATOR");
+    console.log("127.0.0.1:9090");
+    console.log("PRODUCTION DATABASE WILL NOT BE TOUCHED");
+    console.log("========================================");
+  } else {
+    console.log("========================================");
+    console.log("WARNING: FIRESTORE SEED TARGET: PRODUCTION");
+    console.log("This operation will WIPE the Menu collection.");
+    console.log("========================================");
+  }
+
   console.log("\n🚀 Starting Firestore menu seed (via REST API)…");
   console.log(`   Project    : ${PROJECT_ID}`);
   console.log(`   Collection : ${COLLECTION}`);
-  console.log(`   Items      : ${menuItems.length} total\n`);
+  console.log(`   Mode       : ${IS_EMULATOR ? "EMULATOR" : "PRODUCTION"}`);
+  console.log(`   Items      : ${menuItems.length} total
+`);
 
   console.log("🔑 Obtaining access token…");
   const token = await getAccessToken();

@@ -63,3 +63,5 @@ def test_initiator_leave_is_rejected_without_cancelling(monkeypatch):
         assert exc.status_code == 409
         assert 'cancel' in exc.detail.lower()
     assert ref.updates == []
+
+

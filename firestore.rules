@@ -74,7 +74,7 @@ service cloud.firestore {
     // server-side.  The array field also permits safe member-scoped document
     // reads without exposing groups to unrelated authenticated users.
     match /group_orders/{groupId} {
-      allow read: if signedIn() && (request.auth.uid in resource.data.memberUids || isStaff());
+      allow read: if signedIn() && (resource == null || request.auth.uid in resource.data.memberUids || isStaff());
       allow write: if false;
     }
 

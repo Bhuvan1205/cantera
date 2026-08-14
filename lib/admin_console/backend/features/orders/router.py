@@ -44,6 +44,11 @@ def leave_group_order(payload: GroupIdRequest, user: dict = Depends(get_current_
     return GroupOrderResponse.from_firestore(GroupOrderService.leave(user, payload.group_id))
 
 
+@router.post('/group/force_exit')
+def force_exit_group(user: dict = Depends(get_current_user)):
+    return GroupOrderService.force_exit(user)
+
+
 @router.post('/group/cancel', response_model=GroupOrderResponse)
 def cancel_group_order(payload: GroupIdRequest, user: dict = Depends(get_current_user)):
     return GroupOrderResponse.from_firestore(GroupOrderService.cancel(user, payload.group_id))
@@ -247,5 +252,6 @@ def cancel_order(
         details={"status": "cancelled", "total": res.total},
     )
     return res
+
 
 

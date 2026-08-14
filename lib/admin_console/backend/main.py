@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # ── Bootstrap: importing firebase triggers fail-fast initialization on startup ─
 # If Firestore cannot be initialized, this import raises RuntimeError and the
 # process aborts before FastAPI registers any middleware or route.
+import config.settings
 import config.firebase  # noqa: F401
 from config.logging import setup_logging
 
