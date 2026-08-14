@@ -39,6 +39,22 @@ def _normalise_items(items, uid: str) -> list[dict]:
     return [{'menuItemId': x.menu_item_id, 'quantity': x.quantity, 'addedByUid': uid} for x in items]
 
 
+def _resolve_user_name(uid: str, caller: dict, payload_name: str | None) -> str:
+    if payload_name:
+        return payload_name
+    if caller.get('name'):
+        return caller.get('name')
+    try:
+        user_snap = db.collection('Users').document(uid).get()
+        if user_snap.exists:
+            name = (user_snap.to_dict() or {}).get('name')
+            if name:
+                return name
+    except Exception:
+        pass
+    return caller.get('email') or 'Customer'
+
+
 class GroupOrderService:
     @staticmethod
     def _active_group_for(uid: str):
@@ -70,13 +86,14 @@ class GroupOrderService:
             def reserve(transaction):
                 if reservation.get(transaction=transaction).exists:
                     return False
+                user_name = _resolve_user_name(uid, caller, payload.user_name)
                 transaction.set(reservation, {'groupId': group_id, 'createdAt': firestore.SERVER_TIMESTAMP})
                 transaction.set(group_ref, {
                     'groupId': group_id, 'groupCode': code, 'initiatorUid': uid,
-                    'initiatorName': payload.user_name or caller.get('name') or caller.get('email') or 'Customer',
+                    'initiatorName': user_name,
                     'status': 'OPEN', 'createdAt': firestore.SERVER_TIMESTAMP, 'updatedAt': firestore.SERVER_TIMESTAMP,
                     'expiresAt': _expires_at(now),
-                    'members': [{'uid': uid, 'name': payload.user_name or caller.get('name') or caller.get('email') or 'Customer'}],
+                    'members': [{'uid': uid, 'name': user_name}],
                     'memberUids': [uid], 'items': _normalise_items(payload.items, uid),
                     'orderId': None, 'paidAt': None,
                 })
@@ -103,7 +120,8 @@ class GroupOrderService:
             if data.get('status') != 'OPEN': _error('This group is no longer open.', 409)
             if data.get('expiresAt') and data['expiresAt'] <= _now(): _error('This group has expired.', 409)
             if uid in data.get('memberUids', []): _error('You already joined this group.', 409)
-            members = data.get('members', []) + [{'uid': uid, 'name': payload.user_name or caller.get('name') or caller.get('email') or 'Customer'}]
+            user_name = _resolve_user_name(uid, caller, payload.user_name)
+            members = data.get('members', []) + [{'uid': uid, 'name': user_name}]
             transaction.update(ref, {'members': members, 'memberUids': data.get('memberUids', []) + [uid],
                                     'items': data.get('items', []) + _normalise_items(payload.items, uid), 'updatedAt': firestore.SERVER_TIMESTAMP})
         join_tx(tx)
@@ -180,7 +198,7 @@ class GroupOrderService:
         try:
             quantities: dict[str, int] = {}
             for item in data.get('items', []): quantities[item['menuItemId']] = quantities.get(item['menuItemId'], 0) + int(item['quantity'])
-            result = CheckoutService.execute_checkout(uid, CheckoutRequest(items=[CheckoutCartItem(menu_item_id=k, quantity=v) for k, v in quantities.items()], payment_method='wallet', user_name=payload.user_name or data.get('initiatorName')), caller.get('email'))
+            result = CheckoutService.execute_checkout(uid, CheckoutRequest(items=[CheckoutCartItem(menu_item_id=k, quantity=v) for k, v in quantities.items()], payment_method=payload.payment_method, user_name=payload.user_name or data.get('initiatorName')), caller.get('email'))
             tx2 = db.transaction()
             @firestore.transactional
             def complete(transaction):

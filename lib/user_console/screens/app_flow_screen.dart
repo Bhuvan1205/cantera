@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -273,7 +273,7 @@ class _MenuPageState extends State<MenuPage> {
       setState(() => groupCart[id] = newQty);
       _groupMutate(
         work: () => GroupOrderService.instance
-            .items(groupId, 'update', id, quantity: newQty)
+            .items(groupId, 'set_quantity', id, quantity: newQty)
             .then((_) {}),
         rollback: () => groupCart[id] = current,
       );

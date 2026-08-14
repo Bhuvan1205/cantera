@@ -11,7 +11,7 @@ class GroupOrderService {
   Future<GroupOrder> leave(String id) async => _group('/leave', {'group_id': id});
   Future<GroupOrder> cancel(String id) async => _group('/cancel', {'group_id': id});
   Future<GroupOrder> items(String id, String operation, String menuItemId, {int? quantity}) async => _group('/items', {'group_id': id, 'operation': operation, 'menu_item_id': menuItemId, if (quantity != null) 'quantity': quantity});
-  Future<Map<String, dynamic>> checkout(String id) async => Map<String, dynamic>.from(await ApiClient.instance.post('/api/orders/group/checkout', body: {'group_id': id}, headers: {'Idempotency-Key': 'group-$id-${DateTime.now().microsecondsSinceEpoch}'}));
+  Future<Map<String, dynamic>> checkout(String id, {String paymentMethod = 'wallet'}) async => Map<String, dynamic>.from(await ApiClient.instance.post('/api/orders/group/checkout', body: {'group_id': id, 'payment_method': paymentMethod}, headers: {'Idempotency-Key': 'group-$id-${DateTime.now().microsecondsSinceEpoch}'}));
   Future<void> forceExit() async => await ApiClient.instance.post('/api/orders/group/force_exit', body: {});
   Future<GroupOrder> _group(String path, Map<String, dynamic> body) async => GroupOrder.fromJson(Map<String, dynamic>.from(await ApiClient.instance.post('/api/orders/group$path', body: body)));
   Stream<GroupOrder?> watch(String groupId) => FirebaseFirestore.instance.collection('group_orders').doc(groupId).snapshots().map((doc) => doc.exists ? GroupOrder.fromFirestore(doc) : null);

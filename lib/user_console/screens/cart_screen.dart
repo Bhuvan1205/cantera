@@ -196,6 +196,7 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
           onDecrease: () => _refresh(() => widget.onDecrease(item.id)),
           onIncrease: () => _refresh(() => widget.onIncrease(item.id)),
           onDelete: () => _refresh(() => widget.onRemove(item.id)),
+          readOnly: widget.groupOrder != null,
         );
       },
     );
@@ -280,12 +281,14 @@ class CartItemTile extends StatelessWidget {
     required this.onDecrease,
     required this.onIncrease,
     required this.onDelete,
+    this.readOnly = false,
   });
 
   final CartItemData item;
   final VoidCallback onDecrease;
   final VoidCallback onIncrease;
   final VoidCallback onDelete;
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -312,16 +315,17 @@ class CartItemTile extends StatelessWidget {
                         ),
                       ),
                     ),
-                    IconButton(
-                      onPressed: onDelete,
-                      icon: const Icon(
-                        Icons.delete_outline_rounded,
-                        color: AppColors.textMuted,
-                        size: 20,
+                    if (!readOnly)
+                      IconButton(
+                        onPressed: onDelete,
+                        icon: const Icon(
+                          Icons.delete_outline_rounded,
+                          color: AppColors.textMuted,
+                          size: 20,
+                        ),
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
                       ),
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                    ),
                   ],
                 ),
                 if (item.description != null &&
@@ -348,11 +352,21 @@ class CartItemTile extends StatelessWidget {
                       ),
                     ),
                     const Spacer(),
-                    _QtyControl(
-                      quantity: item.quantity,
-                      onDecrease: onDecrease,
-                      onIncrease: onIncrease,
-                    ),
+                    if (readOnly)
+                      Text(
+                        'x${item.quantity}',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
+                      )
+                    else
+                      _QtyControl(
+                        quantity: item.quantity,
+                        onDecrease: onDecrease,
+                        onIncrease: onIncrease,
+                      ),
                   ],
                 ),
               ],

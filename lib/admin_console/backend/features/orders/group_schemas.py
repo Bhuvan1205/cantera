@@ -30,6 +30,7 @@ class GroupItemRequest(GroupIdRequest):
 
 class GroupCheckoutRequest(GroupIdRequest):
     user_name: Optional[str] = None
+    payment_method: str = 'wallet'
 
 
 class GroupOrderResponse(BaseModel):

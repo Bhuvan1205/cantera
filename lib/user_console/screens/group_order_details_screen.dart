@@ -5,6 +5,11 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../theme/app_colors.dart';
 import '../models/group_order_model.dart';
 import '../services/group_order_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'cart_screen.dart';
+import 'app_flow_screen.dart';
+
+import '../../wallet/services/wallet_service.dart';
 
 class GroupOrderDetailsScreen extends StatefulWidget {
   const GroupOrderDetailsScreen({super.key, required this.groupId, this.onLeave});
@@ -22,11 +27,21 @@ class _GroupOrderDetailsScreenState extends State<GroupOrderDetailsScreen> {
   String? _errorMsg;
   int _retryCount = 0;
   bool _isLeaving = false;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _menuSub;
+  Map<String, Map<String, dynamic>> _menuItemsMap = {};
 
   @override
   void initState() {
     super.initState();
     _startListening();
+    _menuSub = FirebaseFirestore.instance.collection('Menu').snapshots().listen((snap) {
+      if (!mounted) return;
+      final Map<String, Map<String, dynamic>> map = {};
+      for (final doc in snap.docs) {
+        map[doc.id] = doc.data();
+      }
+      setState(() => _menuItemsMap = map);
+    });
   }
 
   void _startListening() {
@@ -67,7 +82,30 @@ class _GroupOrderDetailsScreenState extends State<GroupOrderDetailsScreen> {
   @override
   void dispose() {
     _groupSub?.cancel();
+    _menuSub?.cancel();
     super.dispose();
+  }
+
+  String _toTitleCase(String text) {
+    if (text.isEmpty) return text;
+    return text.split(' ').map((word) {
+      if (word.isEmpty) return word;
+      return word[0].toUpperCase() + word.substring(1).toLowerCase();
+    }).join(' ');
+  }
+
+  List<CartItemData> _currentGroupCartItems(GroupOrder group) {
+    return group.items.map((item) {
+      final m = _menuItemsMap[item.menuItemId];
+      return CartItemData(
+        id: item.menuItemId,
+        name: m != null && m['name'] != null ? _toTitleCase(m['name'] as String) : item.menuItemId,
+        price: m != null ? ((m['price'] ?? 0) as num).toInt() : 0,
+        quantity: item.quantity,
+        description: m?['description'] as String?,
+        imageUrl: m?['imageUrl'] as String?,
+      );
+    }).toList();
   }
 
   @override
@@ -182,22 +220,67 @@ class _GroupOrderDetailsScreenState extends State<GroupOrderDetailsScreen> {
                   (m) => m['uid'] == i.addedByUid,
                   orElse: () => {'name': 'member'},
                 );
+            final m = _menuItemsMap[i.menuItemId];
+            final itemName = m != null && m['name'] != null ? _toTitleCase(m['name'] as String) : i.menuItemId;
             return ListTile(
-              title: Text('${i.menuItemId} × ${i.quantity}'),
+              title: Text('$itemName × ${i.quantity}'),
               subtitle: Text('Added by ${owner['name'] ?? 'member'}'),
             );
           }),
           const SizedBox(height: 20),
           if (isInitiator && group.status == 'OPEN')
             ElevatedButton(
-              onPressed: () async {
-                try {
-                  await GroupOrderService.instance.checkout(groupId);
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-                  }
-                }
+              onPressed: () {
+                bool localIsPlacingOrder = false;
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => StatefulBuilder(
+                      builder: (ctx, setRouteState) {
+                        return ReviewOrderScreen(
+                          groupOrder: group,
+                          cartItems: _currentGroupCartItems(group),
+                          cartItemsBuilder: () => _currentGroupCartItems(_group ?? group),
+                          onDecrease: (_) {},
+                          onIncrease: (_) {},
+                          onRemove: (_) {},
+                          isPlacingOrder: localIsPlacingOrder,
+                          onPlaceOrder: (reviewCtx, method) async {
+                            setRouteState(() => localIsPlacingOrder = true);
+                            try {
+                              final response = await GroupOrderService.instance.checkout(
+                                group.groupId,
+                                paymentMethod: method == OrderPaymentMethod.wallet ? 'wallet' : 'direct',
+                              );
+                              final orderId = response['order_id'] as String;
+                              setRouteState(() => localIsPlacingOrder = false);
+                              if (reviewCtx.mounted) {
+                                Navigator.of(reviewCtx).pop(); // Pops ReviewOrderScreen
+                              }
+                              if (mounted) {
+                                Navigator.of(context).pop(); // Pops GroupOrderDetailsScreen
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => OrderDetailPage(orderId: orderId),
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              setRouteState(() => localIsPlacingOrder = false);
+                              if (reviewCtx.mounted) {
+                                ScaffoldMessenger.of(reviewCtx).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Payment failed: ${e.toString().replaceFirst('Exception: ', '')}'),
+                                    backgroundColor: AppColors.error,
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                        );
+                      }
+                    ),
+                  ),
+                );
               },
               child: const Text('Pay Group Total'),
             )
