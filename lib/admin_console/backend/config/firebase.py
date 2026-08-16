@@ -115,7 +115,8 @@ def _initialize_firebase() -> None:
     try:
         if mode == "emulator":
             # Priority 1: Local Firestore emulator (no GCP authentication required)
-            firebase_admin.initialize_app(options={"projectId": project_id})
+            from google.auth.credentials import AnonymousCredentials
+            firebase_admin.initialize_app(AnonymousCredentials(), options={"projectId": project_id})
             credential_source = f"Firestore Emulator ({os.environ.get('FIRESTORE_EMULATOR_HOST')})"
 
         elif mode == "service_account":
@@ -172,7 +173,7 @@ def _initialize_firestore() -> "firestore.Client":
         logger.info("[Firebase] Firestore client initialized successfully.")
         return client
     except Exception as exc:
-        _emit_initialization_failure(_detect_mode(), exc)
+        _emit_initialization_failure(_detect_mode()[0], exc)
         raise RuntimeError(
             f"Firestore client initialization failed: {exc}\n\n"
             "Resolve this by choosing one of the following:\n"
