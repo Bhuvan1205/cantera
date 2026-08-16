@@ -335,7 +335,19 @@ class GroupOrderService:
             @firestore.transactional
             def complete(transaction):
                 snap = ref.get(transaction=transaction)
-                if snap.exists and (snap.to_dict() or {}).get('status') == 'PAYING': transaction.update(ref, {'status': 'COMPLETED', 'orderId': result.order_id, 'paidAt': firestore.SERVER_TIMESTAMP, 'updatedAt': firestore.SERVER_TIMESTAMP})
+                if snap.exists and (snap.to_dict() or {}).get('status') == 'PAYING':
+                    group_data = snap.to_dict()
+                    member_uids = group_data.get('memberUids', [])
+                    lock_snaps = {}
+                    for member_uid in member_uids:
+                        l_ref = db.collection('user_group_locks').document(member_uid)
+                        lock_snaps[l_ref] = l_ref.get(transaction=transaction)
+                        
+                    transaction.update(ref, {'status': 'COMPLETED', 'orderId': result.order_id, 'paidAt': firestore.SERVER_TIMESTAMP, 'updatedAt': firestore.SERVER_TIMESTAMP})
+                    
+                    for l_ref, l_snap in lock_snaps.items():
+                        if l_snap.exists and l_snap.to_dict().get('activeGroupId') == payload.group_id:
+                            transaction.delete(l_ref)
             complete(tx2); return result
         except Exception:
             tx3 = db.transaction()
