@@ -76,18 +76,73 @@ class GroupOrderService:
             _error('You already participate in an active group order.', status.HTTP_409_CONFLICT)
         now, group_id = _now(), f'grp_{uuid.uuid4().hex[:16]}'
         user_name = _resolve_user_name(uid, caller, payload.user_name)
-        # Reservation creation is transactional: document IDs are the codes,
-        # so concurrent creators cannot claim the same code.
+        # Pre-query for active memberships outside the transaction to avoid blocking/deadlock in emulator
+        # We collect the IDs and read them transactionally inside to guarantee isolation.
+        pre_query = db.collection('group_orders').where('memberUids', 'array_contains', uid).stream()
+        known_group_ids = [doc.id for doc in pre_query]
+        
         for _ in range(12):
             code = GroupOrderService._generate_code()
             reservation = db.collection('group_order_codes').document(code)
             group_ref = db.collection('group_orders').document(group_id)
+            lock_ref = db.collection('user_group_locks').document(uid)
             tx = db.transaction()
             @firestore.transactional
             def reserve(transaction):
+                # 1. Read user_group_locks/{uid}
+                lock_snap = lock_ref.get(transaction=transaction)
+                lock_data = lock_snap.to_dict() or {} if lock_snap.exists else None
+                
+                # 2. If lock exists, read referenced group
+                active_group_snap = None
+                if lock_data and lock_data.get('activeGroupId'):
+                    active_group_snap = db.collection('group_orders').document(lock_data['activeGroupId']).get(transaction=transaction)
+                
+                # 3. Read pre-discovered memberships
+                query_results = []
+                for gid in known_group_ids:
+                    # Skip if it's the same as the lock's active group to avoid duplicate reads
+                    if lock_data and gid == lock_data.get('activeGroupId'):
+                        continue
+                    doc_snap = db.collection('group_orders').document(gid).get(transaction=transaction)
+                    if doc_snap.exists:
+                        query_results.append(doc_snap)
+                
+                # 4. Evaluate ALL discovered memberships
+                def is_active(g_snap):
+                    if not g_snap.exists: return False
+                    d = g_snap.to_dict() or {}
+                    if uid not in d.get('memberUids', []): return False
+                    s = d.get('status')
+                    if s == 'PAYING': return True
+                    if s == 'OPEN':
+                        exp = d.get('expiresAt')
+                        if not exp or exp > _now(): return True
+                    return False
+
+                has_active = False
+                if active_group_snap and is_active(active_group_snap):
+                    has_active = True
+                
+                for res_snap in query_results:
+                    if is_active(res_snap):
+                        has_active = True
+                        break
+                
+                if has_active:
+                    _error('You already participate in an active group order.', status.HTTP_409_CONFLICT)
+                
+                # 5. Read the group-code reservation document
                 if reservation.get(transaction=transaction).exists:
                     return False
+                    
+                # 6. If existing lock is stale AND there is NO active membership: transaction.delete(lock_ref)
+                # Since we write it in step 9, we omit deleting it here to avoid multiple writes to the same doc in one tx.
+                    
+                # 7. Reserve the new group code
                 transaction.set(reservation, {'groupId': group_id, 'createdAt': firestore.SERVER_TIMESTAMP})
+                
+                # 8. Create the new group
                 transaction.set(group_ref, {
                     'groupId': group_id, 'groupCode': code, 'initiatorUid': uid,
                     'initiatorName': user_name,
@@ -97,7 +152,12 @@ class GroupOrderService:
                     'memberUids': [uid], 'items': _normalise_items(payload.items, uid),
                     'orderId': None, 'paidAt': None,
                 })
+                
+                # 9. Create/update user_group_locks/{uid}
+                transaction.set(lock_ref, {'activeGroupId': group_id, 'updatedAt': firestore.SERVER_TIMESTAMP})
+                
                 return True
+                
             if reserve(tx):
                 return group_ref.get().to_dict()
         _error('Unable to allocate a unique group code. Please retry.', status.HTTP_503_SERVICE_UNAVAILABLE)
