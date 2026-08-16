@@ -77,6 +77,19 @@ service cloud.firestore {
       allow write: if false;  // ADR-001: all writes via FastAPI backend
     }
 
+    // Group orders are rendered in real time by clients, but every mutation is
+    // server-side.  The array field also permits safe member-scoped document
+    // reads without exposing groups to unrelated authenticated users.
+    match /group_orders/{groupId} {
+      allow read: if signedIn() && (resource == null || request.auth.uid in resource.data.memberUids || isStaff());
+      allow write: if false;
+    }
+
+    // Internal, server-only code reservation map.
+    match /group_order_codes/{code} {
+      allow read, write: if false;
+    }
+
     // ── Orders ────────────────────────────────────────────────────────────────
     // Reads:  order owner or staff/admin (required for order history + detail)
     // Writes: BACKEND ONLY

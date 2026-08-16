@@ -17,18 +17,24 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PROJECT_ID = "canteen-app-e1c8d";
-const COLLECTION = "Menu";
-const BASE_URL = process.env.FIRESTORE_EMULATOR_HOST
-  ? `http://${process.env.FIRESTORE_EMULATOR_HOST}/v1/projects/${PROJECT_ID}/databases/(default)/documents`
-  : `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
+const COLLECTION = "Menu";  // Flutter reads 'Menu' (capital M) — app_flow_screen.dart:30, admin_menu_screen.dart:71
+
+const IS_EMULATOR = process.env.SEED_TARGET === "emulator";
+const PRODUCTION_BASE_URL = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
+const EMULATOR_BASE_URL = `http://127.0.0.1:9090/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
+const BASE_URL = IS_EMULATOR ? EMULATOR_BASE_URL : PRODUCTION_BASE_URL;
 
 const FIREBASE_CLIENT_ID = "563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com";
 const FIREBASE_CLIENT_SECRET = "j9iVZfS8kkCEFUPaAeJV0sAi";
 const REFRESH_TOKEN = "1//0gEmjm_w5hDcBCgYIARAAGBASNwF-L9Irh-1sCEc6ZEJ47CL0rVeQpzBeJA1N3qHWiw6XqjY-21t1c_hKL5gwjPHvHRltdXk3zSA";
 
 async function getAccessToken() {
-  if (process.env.FIRESTORE_EMULATOR_HOST) return "";
-  const client = new UserRefreshClient(FIREBASE_CLIENT_ID, FIREBASE_CLIENT_SECRET, REFRESH_TOKEN);
+  if (IS_EMULATOR) return "owner";
+  const client = new UserRefreshClient(
+    FIREBASE_CLIENT_ID,
+    FIREBASE_CLIENT_SECRET,
+    REFRESH_TOKEN
+  );
   const { credentials } = await client.refreshAccessToken();
   return credentials.access_token;
 }
@@ -51,8 +57,12 @@ async function listDocumentNames(token) {
   const names = [];
   let pageToken = null;
   do {
-    const url = `${BASE_URL}/${COLLECTION}?pageSize=300&mask.fieldPaths=name` + (pageToken ? `&pageToken=${pageToken}` : "");
+    const url =
+      `${BASE_URL}/${COLLECTION}?pageSize=300&mask.fieldPaths=name` +
+      (pageToken ? `&pageToken=${pageToken}` : "");
+
     const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+
     if (!res.ok) {
       if (res.status === 404) break;
       throw new Error(`List failed (${res.status}): ${await res.text()}`);
@@ -67,7 +77,16 @@ async function listDocumentNames(token) {
 }
 
 async function deleteDocument(name, token) {
-  const url = `https://firestore.googleapis.com/v1/${name}`;
+  const origin = IS_EMULATOR ? "http://127.0.0.1:9090/v1" : "https://firestore.googleapis.com/v1";
+  const url = `${origin}/${name}`;
+
+  if (IS_EMULATOR && url.includes("firestore.googleapis.com")) {
+    throw new Error("Target mismatch: attempted to delete production document in emulator mode");
+  }
+  if (!IS_EMULATOR && url.includes("127.0.0.1")) {
+    throw new Error("Target mismatch: attempted to delete emulator document in production mode");
+  }
+
   const res = await fetch(url, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok && res.status !== 404) {
     throw new Error(`Delete failed (${res.status}): ${await res.text()}`);
@@ -103,9 +122,24 @@ async function parseCSV(filePath) {
 }
 
 async function main() {
-  console.log("🚀 Starting Firestore menu seed (via REST API)…");
+  if (IS_EMULATOR) {
+    console.log("========================================");
+    console.log("FIRESTORE SEED TARGET: LOCAL EMULATOR");
+    console.log("127.0.0.1:9090");
+    console.log("PRODUCTION DATABASE WILL NOT BE TOUCHED");
+    console.log("========================================");
+  } else {
+    console.log("========================================");
+    console.log("WARNING: FIRESTORE SEED TARGET: PRODUCTION");
+    console.log("This operation will WIPE the Menu collection.");
+    console.log("========================================");
+  }
+
+  console.log("\n🚀 Starting Firestore menu seed (via REST API)…");
   console.log(`   Project    : ${PROJECT_ID}`);
   console.log(`   Collection : ${COLLECTION}`);
+  console.log(`   Mode       : ${IS_EMULATOR ? "EMULATOR" : "PRODUCTION"}`);
+
 
   console.log("\n🔑 Obtaining access token…");
   const token = await getAccessToken();

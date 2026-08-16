@@ -1,6 +1,9 @@
 const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
+// Keep the established operational close in one named value; the schedule
+// itself is intentionally unchanged.
+const OPERATIONAL_CLOSE_CRON = "59 18 * * *";
 
 admin.initializeApp();
 
@@ -144,7 +147,7 @@ exports.onOrderStatusChanged = onDocumentWritten("Orders/{orderId}", async (even
  * Scheduled operational task running daily at midnight IST (P-11).
  * Purges stale queue items and cleans expired idempotency records.
  */
-exports.dailyOperationalMaintenance = onSchedule("59 18 * * *", async (event) => {
+exports.dailyOperationalMaintenance = onSchedule(OPERATIONAL_CLOSE_CRON, async (event) => {
   console.log("Starting daily canteen maintenance tasks...");
 
   const db = admin.firestore();
@@ -189,6 +192,20 @@ exports.dailyOperationalMaintenance = onSchedule("59 18 * * *", async (event) =>
   }
 
   console.log("Daily maintenance complete.");
+});
+
+// Group expiry is also enforced synchronously by the API. This hourly sweep
+// keeps Firestore state accurate for clients that only watch the document.
+exports.expireOpenGroupOrders = onSchedule("every 60 minutes", async () => {
+  const now = admin.firestore.Timestamp.now();
+  const expired = await admin.firestore().collection("group_orders")
+    .where("status", "==", "OPEN").where("expiresAt", "<", now).limit(500).get();
+  const batch = admin.firestore().batch();
+  expired.docs.forEach((doc) => batch.update(doc.ref, {
+    status: "EXPIRED", updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }));
+  if (!expired.empty) await batch.commit();
+  console.log(`Expired ${expired.size} group order(s).`);
 });
 
 /**

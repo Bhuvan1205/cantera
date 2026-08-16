@@ -37,7 +37,7 @@ def test_verify_firebase_token_success():
         claims = verify_firebase_token("mock.header.payload")
         assert claims["uid"] == "user_abc_123"
         assert claims["email"] == "user@example.com"
-        mock_verify.assert_called_once_with("mock.header.payload", check_revoked=False)
+        mock_verify.assert_called_once_with("mock.header.payload", check_revoked=False, clock_skew_seconds=10)
 
 
 def test_verify_firebase_token_invalid_maps_to_401():
@@ -70,4 +70,4 @@ def test_verify_sensitive_firebase_token_calls_sensitive():
         with patch("firebase_admin.auth.verify_id_token", return_value=mock_claims) as mock_verify:
             claims = verify_sensitive_firebase_token("token.part1.part2")
             assert claims["uid"] == "admin_789"
-            mock_verify.assert_called_once_with("token.part1.part2", check_revoked=True)
+            mock_verify.assert_called_once_with("token.part1.part2", check_revoked=True, clock_skew_seconds=10)

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/app_colors.dart';
-import '../services/recommendation_service.dart';
+import '../utils/app_keys.dart';
 import '../widgets/app_bottom_nav.dart';
+import '../models/group_order_model.dart';
+import '../services/recommendation_service.dart';
 import '../widgets/recommendation_card.dart';
 import '../../foodpulse/widgets/poll_modal.dart';
 import '../../foodpulse/widgets/suggestion_fab_widget.dart';
@@ -46,6 +48,8 @@ class MenuScreen extends StatefulWidget {
     this.onOrdersTap,
     this.onQueueTap,
     this.onProfileTap,
+    this.groupOrder,
+    this.onGroupOrderTap,
     this.isLoading = false,
   });
 
@@ -59,6 +63,8 @@ class MenuScreen extends StatefulWidget {
   final VoidCallback? onOrdersTap;
   final VoidCallback? onQueueTap;
   final VoidCallback? onProfileTap;
+  final GroupOrder? groupOrder;
+  final VoidCallback? onGroupOrderTap;
   final bool isLoading;
 
   @override
@@ -224,6 +230,16 @@ class _MenuScreenState extends State<MenuScreen> {
         ),
       ),
       actions: [
+        IconButton(
+          key: AppKeys.groupOrderCard,
+          onPressed: widget.onGroupOrderTap,
+          icon: const Icon(
+            Icons.groups_rounded,
+            color: AppColors.primary,
+            size: 28,
+          ),
+          tooltip: 'Group Order',
+        ),
         IconButton(
           onPressed: () => PollModal.show(context),
           icon: Stack(

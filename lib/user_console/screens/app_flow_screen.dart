@@ -1,14 +1,20 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../core/services/api_client.dart';
 import '../../theme/app_colors.dart';
+import '../utils/app_keys.dart';
+import '../services/group_mutation_queue.dart';
 
 import '../services/auth_service.dart';
 import '../services/order_service.dart';
+import '../services/group_order_service.dart';
+import '../models/group_order_model.dart';
 import '../../wallet/services/wallet_service.dart';
 import 'cart_screen.dart';
+import 'group_order_details_screen.dart';
 
 import 'menu_screen.dart';
 import 'order_detail_screen.dart';
@@ -26,8 +32,17 @@ class MenuPage extends StatefulWidget {
 
 class _MenuPageState extends State<MenuPage> {
   Map<String, Map<String, dynamic>> cart = {};
+
+  // -- Group Order local optimistic cart --------------------------------
+  // Tracks the current user's own item quantities for the active group.
+  // LOCAL-ONLY state for immediate UI feedback; backend remains authoritative.
+  Map<String, int> groupCart = {};
+
   bool _isPlacingOrder = false;
+  bool _isHydratingGroup = true;
   bool isAdmin = false;
+  GroupOrder? _groupOrder;
+  StreamSubscription<GroupOrder?>? _groupSub;
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _menuStream;
 
   @override
@@ -35,6 +50,126 @@ class _MenuPageState extends State<MenuPage> {
     super.initState();
     _menuStream = FirebaseFirestore.instance.collection('Menu').snapshots();
     _loadAdminStatus();
+    _hydrateGroupOrder();
+  }
+
+  Future<void> _hydrateGroupOrder() async {
+    final user = FirebaseAuth.instance.currentUser;
+    try {
+      if (user != null) {
+        debugPrint('[Hydration] Auth user found: ' + user.uid);
+        debugPrint('[Hydration] Resolving ID token to sync credentials...');
+        await user.getIdToken();
+        
+        debugPrint('[Hydration] Calling getActiveGroup');
+        GroupOrder? group;
+        int attempts = 0;
+        while (attempts < 3) {
+          attempts++;
+          try {
+            group = await GroupOrderService.instance.getActiveGroup(user.uid).timeout(const Duration(seconds: 3));
+            break; // Success
+          } catch (e) {
+            final errStr = e.toString().toLowerCase();
+            if (errStr.contains('permission-denied') && attempts < 3) {
+              debugPrint('[Hydration] Permission denied (attempt $attempts). Retrying in 500ms...');
+              await Future.delayed(const Duration(milliseconds: 500));
+              await user.getIdToken(true);
+              continue;
+            }
+            rethrow;
+          }
+        }
+        
+        debugPrint('[Hydration] getActiveGroup completed. Group found: ' + (group != null).toString());
+        if (mounted && group != null) {
+          setState(() {
+            _groupOrder = group;
+          });
+          _subscribeToGroup(group);
+        }
+      } else {
+        debugPrint('[Hydration] No auth user found');
+      }
+    } catch (e) {
+      debugPrint('[Hydration] ERROR: ' + e.toString());
+      // Hydration failed (timeout, network, or permission), fail open safely
+    } finally {
+      debugPrint('[Hydration] Setting hydration false');
+      if (mounted) {
+        setState(() {
+          _isHydratingGroup = false;
+        });
+      }
+      debugPrint('[Hydration] COMPLETE');
+    }
+  }
+
+  @override
+  void dispose() {
+    _groupSub?.cancel();
+    if (_groupOrder != null) {
+      GroupMutationQueueRegistry.instance.dispose(_groupOrder!.groupId);
+    }
+    super.dispose();
+  }
+
+  void _subscribeToGroup(GroupOrder group) {
+    _groupSub?.cancel();
+    _groupSub = GroupOrderService.instance.watch(group.groupId).listen(
+      (liveGroup) {
+        if (!mounted) return;
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        
+        if (liveGroup == null || !liveGroup.isActive || uid == null || !liveGroup.memberUids.contains(uid)) {
+          _groupSub?.cancel();
+          if (_groupOrder != null) {
+            GroupMutationQueueRegistry.instance.dispose(_groupOrder!.groupId);
+          }
+          setState(() {
+            _groupOrder = null;
+            groupCart.clear();
+          });
+        } else {
+          setState(() {
+            _groupOrder = liveGroup;
+          });
+        }
+      },
+      onError: (error) {
+        if (!mounted) return;
+        // permission-denied can occur transiently before rules propagate.
+        // Do NOT clear _groupOrder — the hydrated data remains valid.
+        // The GroupOrderDetailsScreen listener handles its own retries.
+        debugPrint('[GroupSub] Stream error (non-fatal, group state preserved): $error');
+      },
+    );
+  }
+
+  // -- Per-Group Mutation Helper -----------------------------------------
+  // Enqueues an item mutation onto the group-scoped serialized queue.
+  // [work]     - async backend call.
+  // [rollback] - exact undo of the optimistic setState already applied.
+  void _groupMutate({
+    required Future<void> Function() work,
+    required VoidCallback rollback,
+  }) {
+    final queue = GroupMutationQueueRegistry.instance.queueFor(_groupOrder!.groupId);
+    queue.enqueue(
+      work: work,
+      onRollback: (String message) {
+        if (!mounted) return;
+        setState(rollback);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _loadAdminStatus() async {
@@ -46,7 +181,25 @@ class _MenuPageState extends State<MenuPage> {
     });
   }
 
+  // -- Normal cart (unchanged) + Group Order cart (new) -----------------
+
   void addToCart(MenuItem item) {
+    if (_groupOrder?.isActive == true) {
+      // GROUP ORDER PATH: optimistic setState then serialized backend call.
+      setState(() => groupCart[item.id] = (groupCart[item.id] ?? 0) + 1);
+      _groupMutate(
+        work: () => GroupOrderService.instance
+            .items(_groupOrder!.groupId, 'add', item.id)
+            .then((_) {}),
+        rollback: () {
+          final c = groupCart[item.id] ?? 0;
+          if (c <= 1) groupCart.remove(item.id);
+          else groupCart[item.id] = c - 1;
+        },
+      );
+      return;
+    }
+    // NORMAL CART PATH (unchanged).
     setState(() {
       if (cart.containsKey(item.id)) {
         cart[item.id]!['quantity'] += 1;
@@ -63,10 +216,28 @@ class _MenuPageState extends State<MenuPage> {
   }
 
   void removeFromCartItem(MenuItem item) {
+    if (_groupOrder?.isActive == true) {
+      _groupDecrement(item.id);
+      return;
+    }
     removeFromCart(item.id);
   }
 
   void incrementCartItem(String id) {
+    if (_groupOrder?.isActive == true) {
+      setState(() => groupCart[id] = (groupCart[id] ?? 0) + 1);
+      _groupMutate(
+        work: () => GroupOrderService.instance
+            .items(_groupOrder!.groupId, 'add', id)
+            .then((_) {}),
+        rollback: () {
+          final c = groupCart[id] ?? 0;
+          if (c <= 1) groupCart.remove(id);
+          else groupCart[id] = c - 1;
+        },
+      );
+      return;
+    }
     setState(() {
       if (cart.containsKey(id)) {
         cart[id]!['quantity'] += 1;
@@ -75,6 +246,10 @@ class _MenuPageState extends State<MenuPage> {
   }
 
   void removeFromCart(String id) {
+    if (_groupOrder?.isActive == true) {
+      _groupDecrement(id);
+      return;
+    }
     setState(() {
       if (!cart.containsKey(id)) return;
       if (cart[id]!['quantity'] > 1) {
@@ -83,6 +258,34 @@ class _MenuPageState extends State<MenuPage> {
         cart.remove(id);
       }
     });
+  }
+
+  /// Handles Group Order decrement with correct 'update' vs 'remove' semantics.
+  /// qty > 1 -> send 'update' with newQty   (correct decrement)
+  /// qty == 1 -> send 'remove'               (fully removes item)
+  void _groupDecrement(String id) {
+    final current = groupCart[id] ?? 0;
+    if (current == 0) return;
+    final groupId = _groupOrder!.groupId;
+
+    if (current > 1) {
+      final newQty = current - 1;
+      setState(() => groupCart[id] = newQty);
+      _groupMutate(
+        work: () => GroupOrderService.instance
+            .items(groupId, 'set_quantity', id, quantity: newQty)
+            .then((_) {}),
+        rollback: () => groupCart[id] = current,
+      );
+    } else {
+      setState(() => groupCart.remove(id));
+      _groupMutate(
+        work: () => GroupOrderService.instance
+            .items(groupId, 'remove', id)
+            .then((_) {}),
+        rollback: () => groupCart[id] = 1,
+      );
+    }
   }
 
   void clearCart() => setState(() => cart.clear());
@@ -97,7 +300,19 @@ class _MenuPageState extends State<MenuPage> {
         .toList();
   }
 
+  void _onLeaveGroupLocally() {
+    _groupSub?.cancel();
+    if (_groupOrder != null) {
+      GroupMutationQueueRegistry.instance.dispose(_groupOrder!.groupId);
+    }
+    setState(() {
+      _groupOrder = null;
+      groupCart.clear();
+    });
+  }
+
   void _openCart() {
+    if (_groupOrder?.isActive == true) { Navigator.of(context).push(MaterialPageRoute(builder: (_) => GroupOrderDetailsScreen(groupId: _groupOrder!.groupId, onLeave: _onLeaveGroupLocally))); return; }
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ReviewOrderScreen(
@@ -116,6 +331,132 @@ class _MenuPageState extends State<MenuPage> {
     );
   }
 
+  Future<void> _openGroupOrder() async {
+    if (_isHydratingGroup) return;
+    if (_groupOrder?.isActive == true) {
+      await Navigator.of(context).push(MaterialPageRoute(builder: (_) => GroupOrderDetailsScreen(groupId: _groupOrder!.groupId, onLeave: _onLeaveGroupLocally)));
+      return;
+    }
+
+    final code = TextEditingController();
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        bool isLoading = false;
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Group Order'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    key: AppKeys.groupOrderJoinField,
+                    controller: code,
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: const InputDecoration(labelText: 'Group Code'),
+                    enabled: !isLoading,
+                  ),
+                  if (isLoading)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 16.0),
+                      child: CircularProgressIndicator(),
+                    ),
+                ],
+              ),
+              actions: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
+                      onPressed: isLoading ? null : () async {
+                        setState(() { isLoading = true; });
+                        try {
+                          final migration = cart.entries.map((e) => {'menu_item_id': e.key, 'quantity': e.value['quantity']}).toList();
+                          final group = await GroupOrderService.instance.create(items: migration);
+                          if (!mounted) return;
+                          if (_groupOrder != null) GroupMutationQueueRegistry.instance.dispose(_groupOrder!.groupId);
+                          this.setState(() { _groupOrder = group; cart.clear(); groupCart.clear(); });
+                          _subscribeToGroup(group);
+                          Navigator.pop(dialogContext, true);
+                        } catch (e) {
+                          setState(() { isLoading = false; });
+                          final errorStr = e.toString().toLowerCase();
+                          if (errorStr.contains('already participate') || errorStr.contains('active group order')) {
+                            ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('You are already participating in an active group order.'), backgroundColor: AppColors.error));
+                            Navigator.pop(dialogContext, false);
+                          } else {
+                            ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('Unable to start group order. Please try again.'), backgroundColor: AppColors.error));
+                          }
+                        }
+                      },
+                      child: const Text('Start'),
+                    ),
+                    const SizedBox(height: 8),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.accent,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
+                      onPressed: isLoading ? null : () async {
+                        if (code.text.trim().length < 6) {
+                          ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('Please enter a valid 6-character group code.'), backgroundColor: AppColors.error));
+                          return;
+                        }
+                        setState(() { isLoading = true; });
+                        try {
+                          final migration = cart.entries.map((e) => {'menu_item_id': e.key, 'quantity': e.value['quantity']}).toList();
+                          final group = await GroupOrderService.instance.join(code.text, items: migration);
+                          if (!mounted) return;
+                          if (_groupOrder != null) GroupMutationQueueRegistry.instance.dispose(_groupOrder!.groupId);
+                          this.setState(() { _groupOrder = group; cart.clear(); groupCart.clear(); });
+                          _subscribeToGroup(group);
+                          Navigator.pop(dialogContext, true);
+                        } catch (e) {
+                          setState(() { isLoading = false; });
+                          final errorStr = e.toString().toLowerCase();
+                          if (errorStr.contains('already participate') || errorStr.contains('active group order')) {
+                            ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('You are already participating in an active group order.'), backgroundColor: AppColors.error));
+                            Navigator.pop(dialogContext, false);
+                          } else {
+                            ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(content: Text('Group order failed: $e'), backgroundColor: AppColors.error));
+                          }
+                        }
+                      },
+                      child: const Text('Join'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.error,
+                      ),
+                      onPressed: isLoading ? null : () => Navigator.pop(dialogContext, false),
+                      child: const Text('Cancel'),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result == true && _groupOrder != null) {
+      await Navigator.of(context).push(MaterialPageRoute(builder: (_) => GroupOrderDetailsScreen(groupId: _groupOrder!.groupId)));
+    }
+  }
   void _openOrders() {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -280,7 +621,7 @@ class _MenuPageState extends State<MenuPage> {
     final normalized = rawName.trim().toLowerCase();
 
     const curatedImages = <String, String>{
-      // ── Bakery ─────────────────────────────────────────────────────────────
+      // â”€â”€ Bakery â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       'egg puff':                    'Menu item pictures/Bakery/Bakery/Eggpuff.jpg',
       'veg puff':                    'Menu item pictures/Bakery/Bakery/Vegpuff.png',
       'samosa (big)':                'Menu item pictures/Bakery/Bakery/Bigsamosa.png',
@@ -323,7 +664,7 @@ class _MenuPageState extends State<MenuPage> {
       'campa 20':                    'Menu item pictures/Bakery/Bakery/campa_20.png',
       'jeera soda':                  'Menu item pictures/Bakery/Bakery/jeerasoda_10.png',
       'butter milk':                 'Menu item pictures/Bakery/Bakery/buttermilk.png',
-      // ── Beverages ──────────────────────────────────────────────────────────
+      // â”€â”€ Beverages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       'tea':                         'Menu item pictures/Beverages/Beverages/tea.webp',
       'coffee':                      'Menu item pictures/Beverages/Beverages/coffee.jpg',
       'milk':                        'Menu item pictures/Beverages/Beverages/Milk.jpg',
@@ -343,7 +684,7 @@ class _MenuPageState extends State<MenuPage> {
       'oreo milkshake':              'Menu item pictures/Beverages/Beverages/Oreo milkshake.jpg',
       'strawberry milkshake':        'Menu item pictures/Beverages/Beverages/Strawberry milkshake.jpg',
       'chocolate milkshake':         'Menu item pictures/Beverages/Beverages/Chocolate milkshake.jpg',
-      // ── Mess — Traditional items ────────────────────────────────────────────
+      // â”€â”€ Mess â€” Traditional items â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       'idly':                        'Menu item pictures/Mess/Mess/Idly.jpg',
       'vada':                        'Menu item pictures/Mess/Mess/Vada.jpg',
       'poori':                       'Menu item pictures/Mess/Mess/Poori.jpg',
@@ -358,6 +699,7 @@ class _MenuPageState extends State<MenuPage> {
       'curry':                       'Menu item pictures/Mess/Mess/Curry.jpg',
       'sweet':                       'Menu item pictures/Mess/Mess/Sweet.jpg',
       'parota with kurma':           'Menu item pictures/Mess/Mess/Parota with kurma.jpg',
+      // â”€â”€ Mess â€” Noodles & Rice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       'canteen special (exclusive biryani)': 'Menu item pictures/Mess/Mess/veg-dum-biryani.webp',
       // ── Mess — Noodles & Rice ───────────────────────────────────────────────
       'veg noodles':                 'Menu item pictures/Mess/Mess/veg noodles.png',
@@ -369,7 +711,7 @@ class _MenuPageState extends State<MenuPage> {
       'manchuria fried rice':        'Menu item pictures/Mess/Mess/manchurian fried rice.png',
       'shezwan fried rice':          'Menu item pictures/Mess/Mess/schezwan fried rice.png',
       'shezwan manchuria':           'Menu item pictures/Mess/Mess/schezwan manchuria.png',
-      // ── Mess — Sandwiches & Burgers ────────────────────────────────────────
+      // â”€â”€ Mess â€” Sandwiches & Burgers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       'veg grilled sandwich':        'Menu item pictures/Mess/Mess/veg grilled sandwich.png',
       'veg cheese sandwich':         'Menu item pictures/Mess/Mess/veg cheese sandwich.png',
       'tandoori veg burger sandwich':'Menu item pictures/Mess/Mess/tandoori veg burger.png',
@@ -382,14 +724,14 @@ class _MenuPageState extends State<MenuPage> {
       'chipotle cheese burger':      'Menu item pictures/Mess/Mess/chipotle cheese burger.png',
       'veg hot dog':                 'Menu item pictures/Continental/Continental/Veg hotdog.jpg',
       'paneer hot dog':              'Menu item pictures/Continental/Continental/Paneer hotdog.jpg',
-      // ── Mess — Fries & Snacks ──────────────────────────────────────────────
+      // â”€â”€ Mess â€” Fries & Snacks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       'salted fries':                'Menu item pictures/Mess/Mess/salted fries.png',
       'peri peri fries':             'Menu item pictures/Mess/Mess/peri peri fries.png',
       'veg cheese nuggets':          'Menu item pictures/Mess/Mess/veg cheese balls.png',
       'chilli potato pops':          'Menu item pictures/Mess/Mess/chili potato pops.png',
       'veggie finger':               'Menu item pictures/Mess/Mess/veggie fingers.png',
       'veg cheese balls':            'Menu item pictures/Mess/Mess/veg cheese balls.png',
-      // ── Mess — Pizza ───────────────────────────────────────────────────────
+      // â”€â”€ Mess â€” Pizza â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       'margherita pizza':            'Menu item pictures/Continental/Continental/Margherita.jpg',
       'garden fresh pizza':          'Menu item pictures/Continental/Continental/Garden Fresh.jpg',
       'paneer tikka pizza':          'Menu item pictures/Continental/Continental/Paneer tikka pizza.jpg',
@@ -420,20 +762,43 @@ class _MenuPageState extends State<MenuPage> {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _menuStream,
       builder: (context, snapshot) {
-        final isLoading =
-            snapshot.connectionState == ConnectionState.waiting;
-            
         if (snapshot.hasError) {
           if (kDebugMode) {
             debugPrint('\n=== FIRESTORE ERROR ===');
-            debugPrint('Collection Name: Menu');
-            debugPrint('Operation: Stream (GET)');
-            debugPrint('User UID: ${FirebaseAuth.instance.currentUser?.uid ?? 'NULL'}');
-            debugPrint('Exception: ${snapshot.error}');
-            debugPrint('=======================\n');
+            debugPrint('Menu Stream Error: ');
+            debugPrint('Stack trace: ');
+            debugPrint('========================\n');
           }
+          return Scaffold(
+            backgroundColor: AppColors.bg,
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, color: AppColors.error, size: 48),
+                  const SizedBox(height: 16),
+                  const Text('Failed to load menu.', style: TextStyle(fontSize: 16)),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () {
+                      setState(() {
+                        _menuStream = FirebaseFirestore.instance.collection('Menu').snapshots();
+                      });
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            ),
+          );
         }
 
+        final isLoading =
+            snapshot.connectionState == ConnectionState.waiting || _isHydratingGroup || _isPlacingOrder;
         final items = (snapshot.hasData && snapshot.data!.docs.isNotEmpty)
             ? _toMenuItems(snapshot.data!.docs)
             : <MenuItem>[];
@@ -443,18 +808,33 @@ class _MenuPageState extends State<MenuPage> {
           ...{...items.map((i) => i.category)},
         ];
 
+        // When a Group Order is active we pass an effectiveCart derived
+        // from groupCart so MenuScreen shows the correct per-item quantities.
+        // Normal cart is passed as-is when no group order is active.
+        final Map<String, Map<String, dynamic>> effectiveCart;
+        if (_groupOrder?.isActive == true) {
+          effectiveCart = {
+            for (final e in groupCart.entries)
+              e.key: {'quantity': e.value},
+          };
+        } else {
+          effectiveCart = cart;
+        }
+
         return MenuScreen(
           items: items,
           categories: categories,
           isLoading: isLoading,
           onAddToCart: addToCart,
           onRemoveFromCart: removeFromCartItem,
-          cart: cart,
+          cart: effectiveCart,
           userName: FirebaseAuth.instance.currentUser?.displayName,
           onCartTap: _openCart,
           onOrdersTap: _openOrders,
           onQueueTap: _openQueue,
           onProfileTap: _openProfile,
+          groupOrder: _groupOrder,
+          onGroupOrderTap: _openGroupOrder,
         );
       },
     );
@@ -743,3 +1123,27 @@ String _normalizeOrderStatus(String? status) {
       return 'pending';
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

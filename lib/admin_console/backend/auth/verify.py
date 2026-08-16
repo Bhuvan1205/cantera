@@ -82,7 +82,7 @@ def verify_firebase_token(id_token: str, is_sensitive: bool = False) -> dict:
     trace_exception = "None"
 
     try:
-        decoded: dict = auth.verify_id_token(id_token, check_revoked=check_revoked)
+        decoded: dict = auth.verify_id_token(id_token, check_revoked=check_revoked, clock_skew_seconds=10)
         return decoded
 
     except Exception as exc:

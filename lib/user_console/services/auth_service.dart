@@ -32,7 +32,7 @@ class AuthService {
 
     // Fast path: Custom Claims
     try {
-      final idTokenResult = await user.getIdTokenResult();
+      final idTokenResult = await user.getIdTokenResult().timeout(const Duration(seconds: 3));
       final customRole = idTokenResult.claims?['role'] as String?;
       final isAdminClaim = idTokenResult.claims?['admin'] as bool?;
       final isStaffClaim = idTokenResult.claims?['staff'] as bool?;
@@ -46,10 +46,7 @@ class AuthService {
 
     // Fallback: Firestore document check
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('Users')
-          .doc(user.uid)
-          .get();
+      final doc = await FirebaseFirestore.instance.collection('Users').doc(user.uid).get().timeout(const Duration(seconds: 3));
       if (doc.exists) {
         final data = doc.data();
         final isAdmin = (data?['isAdmin'] as bool?) ?? false;

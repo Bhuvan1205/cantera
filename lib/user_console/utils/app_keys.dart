@@ -22,6 +22,8 @@ import 'package:flutter/widgets.dart';
 /// ElevatedButton(key: AppKeys.loginSubmitButton, ...)
 /// ```
 abstract final class AppKeys {
+  static const Key groupOrderCard = Key('group_order_card');
+  static const Key groupOrderJoinField = Key('group_order_join_field');
   // ── Login Screen ─────────────────────────────────────────────────────────
   static const Key loginEmailField    = Key('login_email_field');
   static const Key loginPasswordField = Key('login_password_field');

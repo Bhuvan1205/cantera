@@ -6,6 +6,7 @@ import '../../wallet/services/wallet_service.dart';
 import '../../wallet/widgets/payment_method_selector.dart';
 import '../utils/app_keys.dart';
 import '../widgets/app_bottom_nav.dart';
+import '../models/group_order_model.dart';
 
 // ── Data model ──────────────────────────────────────────────────────────────
 
@@ -56,6 +57,7 @@ class ReviewOrderScreen extends StatefulWidget {
     this.onHomeTap,
     this.onOrdersTap,
     this.onQueueTap,
+    this.groupOrder,
   });
 
   final List<CartItemData> cartItems;
@@ -76,6 +78,9 @@ class ReviewOrderScreen extends StatefulWidget {
   final VoidCallback? onHomeTap;
   final VoidCallback? onOrdersTap;
   final VoidCallback? onQueueTap;
+  /// When supplied, this existing review screen presents group order context
+  /// instead of suggesting an independent checkout.
+  final GroupOrder? groupOrder;
 
   @override
   State<ReviewOrderScreen> createState() => _ReviewOrderScreenState();
@@ -157,7 +162,9 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
         ),
         const SizedBox(height: 10),
         Text(
-          '${_items.length} item${_items.length == 1 ? '' : 's'} in your tray',
+          widget.groupOrder?.isActive == true
+              ? 'Group ${widget.groupOrder!.groupCode} · ${widget.groupOrder!.status}'
+              : '${_items.length} item${_items.length == 1 ? '' : 's'} in your tray',
           style: const TextStyle(
             fontSize: 15,
             color: AppColors.textMuted,
@@ -189,6 +196,7 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
           onDecrease: () => _refresh(() => widget.onDecrease(item.id)),
           onIncrease: () => _refresh(() => widget.onIncrease(item.id)),
           onDelete: () => _refresh(() => widget.onRemove(item.id)),
+          readOnly: widget.groupOrder != null,
         );
       },
     );
@@ -273,12 +281,14 @@ class CartItemTile extends StatelessWidget {
     required this.onDecrease,
     required this.onIncrease,
     required this.onDelete,
+    this.readOnly = false,
   });
 
   final CartItemData item;
   final VoidCallback onDecrease;
   final VoidCallback onIncrease;
   final VoidCallback onDelete;
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -305,16 +315,17 @@ class CartItemTile extends StatelessWidget {
                         ),
                       ),
                     ),
-                    IconButton(
-                      onPressed: onDelete,
-                      icon: const Icon(
-                        Icons.delete_outline_rounded,
-                        color: AppColors.textMuted,
-                        size: 20,
+                    if (!readOnly)
+                      IconButton(
+                        onPressed: onDelete,
+                        icon: const Icon(
+                          Icons.delete_outline_rounded,
+                          color: AppColors.textMuted,
+                          size: 20,
+                        ),
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
                       ),
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                    ),
                   ],
                 ),
                 if (item.description != null &&
@@ -341,11 +352,21 @@ class CartItemTile extends StatelessWidget {
                       ),
                     ),
                     const Spacer(),
-                    _QtyControl(
-                      quantity: item.quantity,
-                      onDecrease: onDecrease,
-                      onIncrease: onIncrease,
-                    ),
+                    if (readOnly)
+                      Text(
+                        'x${item.quantity}',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
+                      )
+                    else
+                      _QtyControl(
+                        quantity: item.quantity,
+                        onDecrease: onDecrease,
+                        onIncrease: onIncrease,
+                      ),
                   ],
                 ),
               ],
