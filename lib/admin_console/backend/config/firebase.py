@@ -45,13 +45,17 @@ logger = logging.getLogger("canteen-api.firebase")
 def _detect_mode() -> tuple[str, str | None]:
     """
     Determines credential mode by strict priority:
-      1. GOOGLE_APPLICATION_CREDENTIALS (explicit local service account file)
-      2. Application Default Credentials (gcloud auth application-default login)
+      1. FIRESTORE_EMULATOR_HOST (local emulator mode)
+      2. GOOGLE_APPLICATION_CREDENTIALS (explicit local service account file)
       3. Cloud Run metadata server
+      4. Application Default Credentials (gcloud auth application-default login)
 
     Returns:
         (mode_name, key_file_path_if_any)
     """
+    if os.environ.get("FIRESTORE_EMULATOR_HOST"):
+        return ("emulator", None)
+
     explicit_key = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
     if explicit_key:
         if not os.path.exists(explicit_key):
@@ -109,19 +113,24 @@ def _initialize_firebase() -> None:
     project_id = os.environ.get("GCLOUD_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT") or "canteen-app-e1c8d"
 
     try:
-        if mode == "service_account":
-            # Priority 1: Explicit service account key file path
+        if mode == "emulator":
+            # Priority 1: Local Firestore emulator (no GCP authentication required)
+            firebase_admin.initialize_app(options={"projectId": project_id})
+            credential_source = f"Firestore Emulator ({os.environ.get('FIRESTORE_EMULATOR_HOST')})"
+
+        elif mode == "service_account":
+            # Priority 2: Explicit service account key file path
             cred = credentials.Certificate(key_path)
             firebase_admin.initialize_app(cred)
             credential_source = f"Service Account Key: {os.path.basename(key_path)}"
 
         elif mode == "cloud_run":
-            # Priority 4: Cloud Run service account metadata server
+            # Priority 3: Cloud Run service account metadata server
             firebase_admin.initialize_app()
             credential_source = "Cloud Run Service Account (Metadata Server)"
 
         else:
-            # Priority 3: Application Default Credentials (gcloud / ADC)
+            # Priority 4: Application Default Credentials (gcloud / ADC)
             import google.auth
             from google.auth.exceptions import DefaultCredentialsError
 
