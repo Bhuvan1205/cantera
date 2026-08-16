@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/app_colors.dart';
+import '../utils/app_keys.dart';
 import '../widgets/app_bottom_nav.dart';
-import '../widgets/group_order_menu_card.dart';
 import '../models/group_order_model.dart';
 
 // ─── DATA MODEL ──────────────────────────────────────────────────────────────
@@ -146,8 +146,6 @@ class _MenuScreenState extends State<MenuScreen> {
                           children: [
                             _buildHeadline(),
                             const SizedBox(height: 24),
-                            GroupOrderMenuCard(group: widget.groupOrder, onTap: widget.onGroupOrderTap ?? () {}),
-                            const SizedBox(height: 24),
                             _buildCategoryAndSearchRow(),
                             const SizedBox(height: 24),
                             _buildItemList(),
@@ -185,6 +183,16 @@ class _MenuScreenState extends State<MenuScreen> {
         ),
       ),
       actions: [
+        IconButton(
+          key: AppKeys.groupOrderCard,
+          onPressed: widget.onGroupOrderTap,
+          icon: const Icon(
+            Icons.groups_rounded,
+            color: AppColors.primary,
+            size: 28,
+          ),
+          tooltip: 'Group Order',
+        ),
         Padding(
           padding: const EdgeInsets.only(right: 8.0),
           child: IconButton(
