@@ -61,8 +61,14 @@ class GroupOrderService:
         # Status filter makes the query index-free and avoids accepting stale
         # terminal groups as active participation.
         for group in db.collection('group_orders').where('memberUids', 'array_contains', uid).stream():
-            if (group.to_dict() or {}).get('status') in ACTIVE:
+            d = group.to_dict() or {}
+            s = d.get('status')
+            if s == 'PAYING':
                 return group
+            if s == 'OPEN':
+                exp = d.get('expiresAt')
+                if not exp or exp > _now():
+                    return group
         return None
 
     @staticmethod
@@ -137,8 +143,8 @@ class GroupOrderService:
                     return False
                     
                 # 6. If existing lock is stale AND there is NO active membership: transaction.delete(lock_ref)
-                # Since we write it in step 9, we omit deleting it here to avoid multiple writes to the same doc in one tx.
-                    
+                if lock_snap.exists:
+                    transaction.delete(lock_ref)
                 # 7. Reserve the new group code
                 transaction.set(reservation, {'groupId': group_id, 'createdAt': firestore.SERVER_TIMESTAMP})
                 
@@ -221,6 +227,9 @@ class GroupOrderService:
                 _error('You already participate in an active group order.', status.HTTP_409_CONFLICT)
                 
             snap = ref.get(transaction=transaction)
+            
+            if lock_snap.exists:
+                transaction.delete(lock_ref)
             if not snap.exists: _error('Group order was not found.', 404)
             data = snap.to_dict() or {}
             if data.get('status') != 'OPEN': _error('This group is no longer open.', 409)
@@ -250,7 +259,7 @@ class GroupOrderService:
             if data.get('status') == 'PAYING': _error('A payment is in progress.', 409)
             if data.get('status') != 'OPEN': _error('Group is locked.', 409)
             if uid not in data.get('memberUids', []): _error('You are not in this group.', 409)
-            if data.get('initiatorUid') == uid: _error('The initiator cannot leave.', 409)
+            if data.get('initiatorUid') == uid: _error('The initiator cannot leave; use cancel instead.', 409)
             
             transaction.update(ref, {
                 'members': [m for m in data.get('members', []) if m.get('uid') != uid],
@@ -267,27 +276,23 @@ class GroupOrderService:
     @staticmethod
     def cancel(caller: dict, group_id: str):
         uid, ref = caller['uid'], db.collection('group_orders').document(group_id)
+        lock_ref = db.collection('user_group_locks').document(uid)
         tx = db.transaction()
         @firestore.transactional
         def cancel_tx(transaction):
             snap = ref.get(transaction=transaction)
+            lock_snap = lock_ref.get(transaction=transaction)
+
             if not snap.exists: _error('Group order was not found.', 404)
             data = snap.to_dict() or {}
             if data.get('initiatorUid') != uid: _error('Only the initiator can cancel.', 403)
             if data.get('status') not in ACTIVE: _error('Group is not active.', 409)
             if data.get('status') == 'PAYING': _error('A payment is in progress.', 409)
             
-            member_uids = data.get('memberUids', [])
-            lock_snaps = {}
-            for member_uid in member_uids:
-                l_ref = db.collection('user_group_locks').document(member_uid)
-                lock_snaps[l_ref] = l_ref.get(transaction=transaction)
-                
             transaction.update(ref, {'status': 'CANCELLED', 'updatedAt': firestore.SERVER_TIMESTAMP})
             
-            for l_ref, l_snap in lock_snaps.items():
-                if l_snap.exists and l_snap.to_dict().get('activeGroupId') == group_id:
-                    transaction.delete(l_ref)
+            if lock_snap.exists and lock_snap.to_dict().get('activeGroupId') == group_id:
+                transaction.delete(lock_ref)
                     
         cancel_tx(tx)
         return True

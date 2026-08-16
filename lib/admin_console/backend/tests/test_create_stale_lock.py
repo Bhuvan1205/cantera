@@ -6,13 +6,21 @@ import datetime
 from datetime import timezone
 
 class _MockTx:
-    def set(self, ref, data): ref.set_data = data
+    def set(self, ref, data):
+        ref.set_data = data
+        ref._data = data
+        ref._exists = True
     def delete(self, ref): ref.deleted = True
+    def update(self, ref, data):
+        ref.update_data = data
+        if ref._data is not None:
+            ref._data.update(data)
 
 class _MockSnap:
-    def __init__(self, exists, data=None):
+    def __init__(self, exists, data=None, id=None):
         self.exists = exists
         self.data = data
+        self.id = id
     def to_dict(self):
         return self.data
 
@@ -26,7 +34,7 @@ class _MockDocRef:
         self.set_data = None
     
     def get(self, transaction=None):
-        return _MockSnap(self._exists, self._data)
+        return _MockSnap(self._exists, self._data, self.doc_id)
 
 class _MockQuery:
     def __init__(self, coll, field, op, val):
