@@ -524,7 +524,6 @@ class _MenuPageState extends State<MenuPage> {
 
       setState(() => _isPlacingOrder = true);
 
-      final messenger = ScaffoldMessenger.of(cartContext);
       final navigator = Navigator.of(cartContext);
       final userId = FirebaseAuth.instance.currentUser!.uid;
 
@@ -548,16 +547,18 @@ class _MenuPageState extends State<MenuPage> {
       traceStack = stack;
 
       if (mounted) setState(() => _isPlacingOrder = false);
+      if (!cartContext.mounted) return;
 
-      final messenger = ScaffoldMessenger.of(cartContext);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Order failed: ${e.toString().replaceFirst('Exception: ', '')}'),
-          backgroundColor: AppColors.error,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
+      if (cartContext.mounted) {
+        ScaffoldMessenger.of(cartContext).showSnackBar(
+          SnackBar(
+            content: Text('Order failed: ${e.toString().replaceFirst('Exception: ', '')}'),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
     } finally {
       debugPrint(
         'STEP 1\n'
@@ -699,6 +700,8 @@ class _MenuPageState extends State<MenuPage> {
       'sweet':                       'Menu item pictures/Mess/Mess/Sweet.jpg',
       'parota with kurma':           'Menu item pictures/Mess/Mess/Parota with kurma.jpg',
       // â”€â”€ Mess â€” Noodles & Rice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      'canteen special (exclusive biryani)': 'Menu item pictures/Mess/Mess/veg-dum-biryani.webp',
+      // ── Mess — Noodles & Rice ───────────────────────────────────────────────
       'veg noodles':                 'Menu item pictures/Mess/Mess/veg noodles.png',
       'veg manchuria':               'Menu item pictures/Mess/Mess/veg manchurain.png',
       'paneer fried rice':           'Menu item pictures/Mess/Mess/paneer fried rice.png',
@@ -897,6 +900,14 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
             snapshot.connectionState == ConnectionState.waiting;
 
         if (snapshot.hasError) {
+          if (kDebugMode) {
+            debugPrint('\n=== FIRESTORE ERROR ===');
+            debugPrint('Collection Name: Orders');
+            debugPrint('Operation: GET');
+            debugPrint('User UID: ${FirebaseAuth.instance.currentUser?.uid ?? 'NULL'}');
+            debugPrint('Exception: ${snapshot.error}');
+            debugPrint('=======================\n');
+          }
           return Scaffold(
             backgroundColor: AppColors.bg,
             body: Center(child: Text('Error: ${snapshot.error}')),
@@ -945,6 +956,18 @@ class OrderDetailPage extends StatelessWidget {
           );
         }
 
+        if (snapshot.hasError) {
+          if (kDebugMode) {
+            debugPrint('\n=== FIRESTORE ERROR ===');
+            debugPrint('Collection Name: Orders');
+            debugPrint('Document Path: Orders/$orderId');
+            debugPrint('Operation: Stream (GET)');
+            debugPrint('User UID: ${FirebaseAuth.instance.currentUser?.uid ?? 'NULL'}');
+            debugPrint('Exception: ${snapshot.error}');
+            debugPrint('=======================\n');
+          }
+        }
+
         if (!snapshot.hasData || !snapshot.data!.exists) {
           return const Scaffold(
             backgroundColor: AppColors.bg,
@@ -968,6 +991,22 @@ class OrderDetailPage extends StatelessWidget {
             ? orderId.substring(0, 4).toUpperCase()
             : orderId.toUpperCase();
 
+        final categoryTokens = data['categoryTokens'] as Map<String, dynamic>? ?? {};
+
+        // Determine which Smart Prep categories exist in this order.
+        // Token document IDs are the category strings ('mess', 'continental').
+        const smartPrepCats = {'mess', 'continental'};
+        final smartPrepCategories = categoryTokens.keys
+            .where((k) => smartPrepCats.contains(k.toLowerCase()))
+            .toList();
+
+        // True if the order contains any non-Smart-Prep items (bakery, beverages, etc.)
+        // Those items still use the QR flow.
+        final hasNonSmartPrepItem = (data['items'] as List<dynamic>? ?? []).any(
+          (item) => !smartPrepCats.contains(
+              (item as Map<String, dynamic>)['category']?.toString().toLowerCase()),
+        );
+
         return OrderDetailScreen(
           orderId: orderId,
           orderNumber: '#CC-$shortId',
@@ -983,6 +1022,9 @@ class OrderDetailPage extends StatelessWidget {
               'reason': 'User cancelled placed order',
             });
           },
+          smartPrepCategories: smartPrepCategories,
+          hasNonMessItem: hasNonSmartPrepItem,
+          overallStatus: data['overall_status'] as String? ?? 'active',
         );
       },
     );
@@ -1072,6 +1114,8 @@ String _normalizeOrderStatus(String? status) {
       return 'delivered';
     case 'refund_pending':
       return 'refund_pending';
+    case 'preparation_pending':
+      return 'preparation_pending';
     case 'refunded':
     case 'cancelled':
       return 'cancelled';

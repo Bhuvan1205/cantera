@@ -13,7 +13,6 @@ class UserProfile(BaseModel):
     phone: Optional[str] = None
     is_admin: bool = False
     profile_photo: Optional[str] = None
-    pickup_pin: Optional[str] = None
 
     @classmethod
     def from_firestore(cls, uid: str, data: dict) -> "UserProfile":
@@ -24,7 +23,6 @@ class UserProfile(BaseModel):
             phone=data.get("phone"),
             is_admin=data.get("isAdmin", False),
             profile_photo=data.get("profilePhoto"),
-            pickup_pin=data.get("pickupPin"),
         )
 
 
@@ -80,17 +78,22 @@ class CreateUserProfileRequest(BaseModel):
     name: str
     email: str
     phone: Optional[str] = None
-    pickup_pin: Optional[str] = None
 
 
-class ChangePinRequest(BaseModel):
-    """Payload for updating delivery pickup PIN."""
-    new_pin: str
+class RegisterFcmTokenRequest(BaseModel):
+    """
+    Payload for registering or refreshing an FCM push notification token.
 
+    The authenticated UID is ALWAYS derived from the verified Firebase Bearer
+    token in the Authorization header. The client MUST NOT supply a uid field.
+    Only the device-generated FCM token is accepted from the client.
+    """
+    token: str
 
-class PickupPinInfo(BaseModel):
-    """Metadata regarding user's current pickup PIN and cooldown status."""
-    has_pin: bool
-    last_changed: Optional[str] = None
-    can_change_in_days: int = 0
+    @classmethod
+    def validate_token(cls, token: str) -> str:
+        token = token.strip()
+        if not token:
+            raise ValueError("FCM token must not be empty.")
+        return token
 

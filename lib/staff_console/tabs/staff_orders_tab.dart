@@ -23,10 +23,10 @@ class StaffOrdersTab extends StatefulWidget {
 }
 
 class _StaffOrdersTabState extends State<StaffOrdersTab> {
-  String _selectedFilter = 'placed'; // 'placed', 'preparing', or 'delivered'
+  String _selectedFilter = 'placed'; // 'placed', 'preparing', 'ready_for_pickup', or 'delivered'
   String _selectedCounter = 'all'; // 'all', 'mess', 'bakery', 'beverages'
 
-  Future<void> _showPinDialog(String orderId, String tokenId) async {
+  Future<void> _showPinDialog(String orderId, String category) async {
     final pinController = TextEditingController();
     bool isVerifying = false;
     String? localError;
@@ -89,9 +89,9 @@ class _StaffOrdersTabState extends State<StaffOrdersTab> {
                     localError = null;
                   });
                   try {
-                    await OrderService.verifyMessOtp(
+                    await OrderService.verifyOtpViaBackend(
                       orderId: orderId,
-                      tokenId: tokenId,
+                      counter: category,
                       otp: pin,
                     );
                     if (!ctx.mounted) return;
@@ -167,6 +167,10 @@ class _StaffOrdersTabState extends State<StaffOrdersTab> {
             .where((doc) =>
                 (doc.data()['status'] as String? ?? 'placed').toLowerCase() == 'preparing')
             .length;
+        final readyCount = allDocs
+            .where((doc) =>
+                (doc.data()['status'] as String? ?? 'placed').toLowerCase() == 'ready_for_pickup')
+            .length;
         final deliveredCount = allDocs
             .where((doc) =>
                 (doc.data()['status'] as String? ?? 'placed').toLowerCase() == 'delivered')
@@ -180,6 +184,8 @@ class _StaffOrdersTabState extends State<StaffOrdersTab> {
             if (status != 'placed') return false;
           } else if (_selectedFilter == 'preparing') {
             if (status != 'preparing') return false;
+          } else if (_selectedFilter == 'ready_for_pickup') {
+            if (status != 'ready_for_pickup') return false;
           } else {
             if (status != 'delivered') return false;
           }
@@ -191,6 +197,7 @@ class _StaffOrdersTabState extends State<StaffOrdersTab> {
             final catStatus = (catTokens[_selectedCounter]['status'] as String? ?? 'placed').toLowerCase();
             if (_selectedFilter == 'placed' && catStatus != 'placed') return false;
             if (_selectedFilter == 'preparing' && catStatus != 'preparing') return false;
+            if (_selectedFilter == 'ready_for_pickup' && catStatus != 'ready_for_pickup') return false;
             if (_selectedFilter == 'delivered' && catStatus != 'delivered') return false;
           }
 
@@ -261,6 +268,16 @@ class _StaffOrdersTabState extends State<StaffOrdersTab> {
                     opacity: _selectedFilter == 'preparing' ? 1.0 : 0.45,
                     child: StaffMetricPill(
                       label: '$preparingCount PREPARING',
+                      color: const Color(0xFFE68A00),
+                    ),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () => setState(() => _selectedFilter = 'ready_for_pickup'),
+                  child: Opacity(
+                    opacity: _selectedFilter == 'ready_for_pickup' ? 1.0 : 0.45,
+                    child: StaffMetricPill(
+                      label: '$readyCount READY FOR PICKUP',
                       color: const Color(0xFFB87333),
                     ),
                   ),
@@ -288,9 +305,7 @@ class _StaffOrdersTabState extends State<StaffOrdersTab> {
                   const SizedBox(width: 8),
                   _buildCounterChip('Mess', 'mess'),
                   const SizedBox(width: 8),
-                  _buildCounterChip('Bakery', 'bakery'),
-                  const SizedBox(width: 8),
-                  _buildCounterChip('Beverages', 'beverages'),
+                  _buildCounterChip('Continental', 'continental'),
                 ],
               ),
             ),
@@ -305,13 +320,21 @@ class _StaffOrdersTabState extends State<StaffOrdersTab> {
                   VoidCallback? onTap;
                   
                   final catTokens = data['categoryTokens'] as Map<String, dynamic>?;
-                  if (catTokens != null && catTokens.containsKey('mess')) {
-                    final tokenStatus = (catTokens['mess']['status'] as String? ?? '').toLowerCase();
-                    if (tokenStatus != 'delivered') {
-                      final qrData = catTokens['mess']['tokenId'] as String;
-                      final parts = qrData.split('::');
-                      if (parts.length == 2) {
-                        onTap = () => _showPinDialog(parts[0], parts[1]);
+                  if (catTokens != null) {
+                    String? targetCategory;
+                    if (_selectedCounter != 'all' && catTokens.containsKey(_selectedCounter)) {
+                      targetCategory = _selectedCounter;
+                    } else {
+                      targetCategory = catTokens.keys.firstWhere(
+                        (k) => (catTokens[k]['status'] as String? ?? '').toLowerCase() == 'ready_for_pickup',
+                        orElse: () => catTokens.keys.first,
+                      );
+                    }
+
+                    if (catTokens.containsKey(targetCategory)) {
+                      final tokenStatus = (catTokens[targetCategory]['status'] as String? ?? '').toLowerCase();
+                      if (tokenStatus == 'ready_for_pickup') {
+                        onTap = () => _showPinDialog(doc.id, targetCategory!);
                       }
                     }
                   }

@@ -94,7 +94,7 @@ class StaffInventoryCard extends StatelessWidget {
                       ? Image.network(
                           imageUrl,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => Container(
+                          errorBuilder: (context, error, stackTrace) => Container(
                             color: const Color(0xFFF3EDE4),
                             child: const Icon(Icons.broken_image_outlined, size: 24, color: AppColors.textMuted),
                           ),
@@ -102,7 +102,7 @@ class StaffInventoryCard extends StatelessWidget {
                       : Image.asset(
                           imageUrl,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => Container(
+                          errorBuilder: (context, error, stackTrace) => Container(
                             color: const Color(0xFFF3EDE4),
                             child: const Icon(Icons.broken_image_outlined, size: 24, color: AppColors.textMuted),
                           ),

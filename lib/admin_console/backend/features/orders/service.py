@@ -1,5 +1,6 @@
 from typing import Optional
 from fastapi import HTTPException, status
+from datetime import datetime, timezone
 
 from .repository import OrderRepository
 from .schemas import (
@@ -8,15 +9,109 @@ from .schemas import (
     TokenDocument,
     CreateManualOrderRequest,
     UpdateOrderStatusRequest,
+    SMART_PREP_CATEGORIES,
 )
 
-VALID_STATUSES = {"placed", "preparing", "delivered", "refund_pending", "cancelled"}
+VALID_STATUSES = {"placed", "preparing", "ready_for_pickup", "delivered", "refund_pending", "cancelled", "discarded"}
 
 
 class OrderService:
     """
     Business logic layer for the Orders feature.
     """
+
+    @staticmethod
+    def start_preparation(order_id: str, user_uid: str, category: str) -> OrderDetail:
+        # Validate category
+        category = category.lower().strip()
+        if category not in SMART_PREP_CATEGORIES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Category '{category}' is not eligible for Smart Preparation. "
+                       f"Valid categories: {', '.join(sorted(SMART_PREP_CATEGORIES))}.",
+            )
+
+        order = OrderRepository.get_order_by_id(order_id)
+        if order is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Order '{order_id}' not found.",
+            )
+
+        if order.user_id != user_uid:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to access this order.",
+            )
+
+        # Verify the requested category token exists in the order
+        target_token = next((t for t in order.tokens if t.token_id == category), None)
+        if target_token is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"This order does not contain a '{category}' token.",
+            )
+
+        # Idempotency: already preparing
+        if target_token.token_status == "preparing":
+            return order
+
+        # Block terminal states
+        terminal_states = {"delivered", "discarded", "cancelled", "ready_for_pickup"}
+        if target_token.token_status in terminal_states:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot start preparation: '{category}' token is in "
+                       f"'{target_token.token_status}' state.",
+            )
+
+        if order.overall_status != "active":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot start preparation: order is not active "
+                       f"(overall_status='{order.overall_status}').",
+            )
+
+        return OrderRepository.start_preparation(order_id, category)
+
+    @staticmethod
+    def mark_prepared(order_id: str, staff_uid: str, category: str) -> OrderDetail:
+        # Validate category
+        category = category.lower().strip()
+        if category not in SMART_PREP_CATEGORIES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Category '{category}' is not eligible for Smart Preparation. "
+                       f"Valid categories: {', '.join(sorted(SMART_PREP_CATEGORIES))}.",
+            )
+
+        order = OrderRepository.get_order_by_id(order_id)
+        if order is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Order '{order_id}' not found.",
+            )
+
+        # Verify the requested category token exists
+        target_token = next((t for t in order.tokens if t.token_id == category), None)
+        if target_token is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Order does not have a '{category}' token.",
+            )
+
+        # Idempotency: already ready
+        if target_token.token_status == "ready_for_pickup":
+            return order
+
+        if target_token.token_status != "preparing":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Order does not have a '{category}' token in 'preparing' state "
+                       f"(current: '{target_token.token_status}').",
+            )
+
+        return OrderRepository.mark_prepared(order_id, category, staff_uid)
 
     @staticmethod
     def list_orders(

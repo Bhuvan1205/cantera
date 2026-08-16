@@ -14,5 +14,9 @@
   "jest": {
     "testEnvironment": "node",
     "testTimeout": 30000
+  },
+  "dependencies": {
+    "browserslist": "^4.28.8",
+    "caniuse-lite": "^1.0.30001809"
   }
 }

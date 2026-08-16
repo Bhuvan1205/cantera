@@ -46,7 +46,6 @@ def test_checkout_successful_orchestration():
                     counter="bakery",
                     token_number=42,
                     qr_valid=True,
-                    otp=None,
                 )
             ],
         )

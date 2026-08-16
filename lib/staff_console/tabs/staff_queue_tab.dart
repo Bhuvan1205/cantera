@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/services/api_client.dart';
 import '../../theme/app_colors.dart';
 
 /// Live Queue board for the Canteen Staff Terminal.
@@ -312,16 +313,62 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-class _TokenRow extends StatelessWidget {
+class _TokenRow extends StatefulWidget {
   const _TokenRow({required this.entry, required this.isPreparing});
 
   final Map<String, dynamic> entry;
   final bool isPreparing;
 
   @override
+  State<_TokenRow> createState() => _TokenRowState();
+}
+
+class _TokenRowState extends State<_TokenRow> {
+  bool _isLoading = false;
+
+  Future<void> _markPrepared() async {
+    setState(() => _isLoading = true);
+    try {
+      final orderId = widget.entry['order_id'] as String?;
+      final category = widget.entry['token_id'] as String?; // token_id stores category
+
+      if (orderId == null || category == null) {
+        throw Exception('Missing orderId or category');
+      }
+
+      await ApiClient.instance.post(
+        '/api/orders/$orderId/mark-prepared',
+        body: {'category': category},
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${category.toUpperCase()} order marked prepared!'),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed: ${e.toString().replaceFirst('Exception: ', '')}'),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final tokenNumber = entry['token_number'] as int?;
-    final tokenId = entry['token_id'] as String? ?? '';
+    final tokenNumber = widget.entry['token_number'] as int?;
+    final tokenId = widget.entry['token_id'] as String? ?? '';
     final displayLabel = tokenNumber != null
         ? 'Token #$tokenNumber'
         : 'Token ${tokenId.length > 6 ? tokenId.substring(0, 6) : tokenId}';
@@ -330,12 +377,12 @@ class _TokenRow extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: isPreparing
+        color: widget.isPreparing
             ? const Color(0xFFB87333).withValues(alpha: 0.07)
             : AppColors.summaryCard,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isPreparing
+          color: widget.isPreparing
               ? const Color(0xFFB87333).withValues(alpha: 0.25)
               : AppColors.border,
         ),
@@ -346,7 +393,7 @@ class _TokenRow extends StatelessWidget {
             width: 8,
             height: 8,
             decoration: BoxDecoration(
-              color: isPreparing
+              color: widget.isPreparing
                   ? const Color(0xFFB87333)
                   : AppColors.textMuted.withValues(alpha: 0.4),
               shape: BoxShape.circle,
@@ -359,27 +406,41 @@ class _TokenRow extends StatelessWidget {
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
-                color: isPreparing ? const Color(0xFFB87333) : AppColors.primary,
+                color: widget.isPreparing ? const Color(0xFFB87333) : AppColors.primary,
               ),
             ),
           ),
-          if (isPreparing)
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: const Color(0xFFB87333).withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Text(
-                'IN PROGRESS',
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.8,
-                  color: Color(0xFFB87333),
+          if (widget.isPreparing)
+            ElevatedButton(
+              onPressed: _isLoading ? null : _markPrepared,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFB87333),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
                 ),
+                elevation: 0,
               ),
+              child: _isLoading
+                  ? const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Text(
+                      'MARK PREPARED',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
             ),
         ],
       ),

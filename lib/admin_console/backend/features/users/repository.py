@@ -1,7 +1,8 @@
 from google.cloud import firestore
 from config.firebase import db
-from .schemas import UserProfile, WalletSummary, WalletTransaction, UserDetail, CreateUserProfileRequest, PickupPinInfo
+from .schemas import UserProfile, WalletSummary, WalletTransaction, UserDetail, CreateUserProfileRequest, RegisterFcmTokenRequest
 from datetime import datetime, timezone
+import hashlib
 
 
 class UserRepository:
@@ -74,6 +75,14 @@ class UserRepository:
     def upsert_user_profile(uid: str, payload: CreateUserProfileRequest) -> UserProfile:
         """
         Initializes or updates user profile in Users/{uid} and creates initial 0-balance wallet.
+
+        On CREATION (new document), writes the full required schema:
+          - uid, name, email, isAdmin (False), pickupPin, createdAt, updatedAt, role
+
+        On UPDATE (existing document), only merges mutable fields:
+          - name, email, pickupPin (if changing), updatedAt
+          - isAdmin is NEVER overwritten here — only admins can elevate privileges.
+
         Uses a WriteBatch to commit user and wallet writes in a single RPC.
         """
         user_ref = db.collection(UserRepository._users_col).document(uid)
@@ -82,33 +91,48 @@ class UserRepository:
         # Read both docs in a single batched read
         user_snap, wallet_snap = db.get_all([user_ref, wallet_ref])
 
-        data_to_set = {
-            "uid": uid,
-            "name": payload.name.strip(),
-            "email": payload.email.strip().lower(),
-            "updatedAt": firestore.SERVER_TIMESTAMP,
-        }
-        if payload.phone:
-            data_to_set["phone"] = payload.phone.strip()
-
         batch = db.batch()
 
         if not user_snap.exists:
-            data_to_set["createdAt"] = firestore.SERVER_TIMESTAMP
-            data_to_set["isAdmin"] = False
-            data_to_set["role"] = "customer"
+            # ── NEW USER: Write the full required document schema ──────────────
+            # All 6 required fields are guaranteed to be present on creation.
+            new_doc = {
+                "uid": uid,
+                "name": payload.name.strip(),
+                "email": payload.email.strip().lower(),
+                "isAdmin": False,
+                "pickupPin": payload.pickup_pin.strip() if payload.pickup_pin else "",
+                "createdAt": firestore.SERVER_TIMESTAMP,
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+                "role": "customer",
+            }
             if payload.pickup_pin:
-                data_to_set["pickupPin"] = payload.pickup_pin.strip()
-                data_to_set["lastPinChange"] = firestore.SERVER_TIMESTAMP
-            batch.set(user_ref, data_to_set)
+                new_doc["lastPinChange"] = firestore.SERVER_TIMESTAMP
+            if payload.phone:
+                new_doc["phone"] = payload.phone.strip()
+            batch.set(user_ref, new_doc)
+            committed_data = new_doc
         else:
+            # ── EXISTING USER: Merge only mutable profile fields ───────────────
+            # isAdmin is intentionally excluded — privilege escalation is admin-only.
             existing = user_snap.to_dict() or {}
+            update_data: dict = {
+                "uid": uid,
+                "name": payload.name.strip(),
+                "email": payload.email.strip().lower(),
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+            }
+            if payload.phone:
+                update_data["phone"] = payload.phone.strip()
+            # Only update pickupPin if a new PIN is supplied and none exists yet
             if payload.pickup_pin and not existing.get("pickupPin"):
-                data_to_set["pickupPin"] = payload.pickup_pin.strip()
-                data_to_set["lastPinChange"] = firestore.SERVER_TIMESTAMP
-            batch.set(user_ref, data_to_set, merge=True)
+                update_data["pickupPin"] = payload.pickup_pin.strip()
+                update_data["lastPinChange"] = firestore.SERVER_TIMESTAMP
+            batch.set(user_ref, update_data, merge=True)
+            # Merge existing + updates for the return value
+            committed_data = {**existing, **update_data}
 
-        # Create wallet only if it doesn't already exist
+        # ── WALLET: Create initial 0-balance wallet if it doesn't exist ────────
         if not wallet_snap.exists:
             batch.set(wallet_ref, {
                 "balance": 0.0,
@@ -119,62 +143,52 @@ class UserRepository:
 
         batch.commit()
 
-        # Construct return value from known committed state — no extra Firestore read needed
-        known_data = {
-            **(user_snap.to_dict() or {} if user_snap.exists else {}),
-            **{k: v for k, v in data_to_set.items() if k != "updatedAt"},
-            "uid": uid,
-        }
-        return UserProfile.from_firestore(uid, known_data)
+        return UserProfile.from_firestore(uid, committed_data)
+
+
 
 
     @staticmethod
-    def get_pickup_pin_info(uid: str) -> tuple[dict, PickupPinInfo]:
+    def upsert_fcm_token(uid: str, token: str) -> None:
         """
-        Returns the raw user doc dict and parsed PickupPinInfo.
+        Registers or refreshes an FCM push notification token for the given user.
+
+        Storage path: Users/{uid}/fcm_tokens/{sha256(token)}
+
+        The document ID is derived from a sha256 hash of the token, making the
+        operation deterministic and idempotent. Registering the same token twice
+        (e.g., on app restart or token refresh) always sets the same document.
+
+        Security:
+          - uid is always derived from the verified Firebase ID token on the
+            server side. It is never accepted from the client.
+          - Writing to another user's fcm_tokens subcollection is impossible
+            because the authenticated uid is injected by the dependency.
+          - Firestore security rules block direct client writes entirely
+            (ADR-001). This method uses the Admin SDK which bypasses rules.
         """
-        user_ref = db.collection(UserRepository._users_col).document(uid)
-        user_snap = user_ref.get()
-        if not user_snap.exists:
-            return {}, PickupPinInfo(has_pin=False, last_changed=None, can_change_in_days=0)
-
-        data = user_snap.to_dict() or {}
-        pin = data.get("pickupPin")
-        last_changed_ts = data.get("lastPinChange")
-
-        can_change_in_days = 0
-        last_changed_iso = None
-        if last_changed_ts:
-            if hasattr(last_changed_ts, "to_datetime"):
-                dt = last_changed_ts.to_datetime()
-            elif isinstance(last_changed_ts, datetime):
-                dt = last_changed_ts
-            else:
-                dt = datetime.now(timezone.utc)
-
-            last_changed_iso = dt.isoformat()
-            now = datetime.now(timezone.utc)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            days_passed = (now - dt).days
-            if days_passed < 30:
-                can_change_in_days = 30 - days_passed
-
-        return data, PickupPinInfo(
-            has_pin=bool(pin),
-            last_changed=last_changed_iso,
-            can_change_in_days=can_change_in_days,
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        token_ref = (
+            db.collection(UserRepository._users_col)
+            .document(uid)
+            .collection("fcm_tokens")
+            .document(token_hash)
         )
+        token_ref.set({
+            "token": token,
+            "updated_at": firestore.SERVER_TIMESTAMP,
+        })
 
     @staticmethod
-    def update_pickup_pin(uid: str, new_pin: str) -> None:
+    def delete_fcm_token(uid: str, token: str) -> None:
         """
-        Updates pickup PIN and updates lastPinChange to server timestamp.
+        Deterministically removes a specific FCM token for the given user.
         """
-        user_ref = db.collection(UserRepository._users_col).document(uid)
-        user_ref.set({
-            "pickupPin": new_pin,
-            "lastPinChange": firestore.SERVER_TIMESTAMP,
-            "updatedAt": firestore.SERVER_TIMESTAMP,
-        }, merge=True)
-
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        token_ref = (
+            db.collection(UserRepository._users_col)
+            .document(uid)
+            .collection("fcm_tokens")
+            .document(token_hash)
+        )
+        token_ref.delete()

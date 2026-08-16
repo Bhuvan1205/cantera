@@ -65,7 +65,8 @@ __pycache__/
 # Dependencies & Node
 node_modules/
 
+# Local developer environment configuration (contains credentials — never commit)
+lib/admin_console/.env
 # OS / Temporary Artifacts
 Thumbs.db
 *.tmp
-

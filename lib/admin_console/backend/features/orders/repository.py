@@ -2,6 +2,7 @@ import random
 import time
 from typing import Optional
 from google.cloud import firestore
+from datetime import datetime
 
 from config.firebase import db
 from features.inventory.schemas import is_quantified_item
@@ -207,13 +208,11 @@ class OrderRepository:
                 "items": display_items[cat],
             }
 
-            otp = None
             queue_name = None
             queue_position = None
             prep_units_in_queue = None
 
             if is_mess:
-                otp = str(random.randint(1000, 9999))
                 queue_name = items_for_cat[0]["item_name"]
                 prep_units_in_queue = sum(item["prep_units"] for item in items_for_cat)
 
@@ -230,8 +229,6 @@ class OrderRepository:
                 "token_number": cat_token_num,
                 "qr_valid": True,
                 "qr_code_data": qr_code_data,
-                "otp": otp,
-                "otp_verified": False if is_mess else None,
                 "queue_name": queue_name,
                 "queue_position": queue_position,
                 "prep_units_in_queue": prep_units_in_queue,
@@ -406,6 +403,17 @@ class OrderRepository:
                 detail=f"Order cannot be cancelled because it is in '{curr_status}' status.",
             )
 
+        # Token-level cancellation protection for Smart Prep
+        token_docs = list(order_ref.collection("tokens").stream())
+        for t_doc in token_docs:
+            t_data = t_doc.to_dict() or {}
+            t_status = str(t_data.get("token_status", "")).lower()
+            if t_status in ("preparing", "ready_for_pickup", "delivered", "discarded"):
+                raise HTTPException(
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
+                    detail="Order cannot be cancelled because preparation has already started.",
+                )
+
         # 1. Restock items in Menu
         items = order_data.get("items", [])
         for item in items:
@@ -481,4 +489,193 @@ class OrderRepository:
             })
 
         return OrderRepository.get_order_by_id(snap.id)
+
+    @staticmethod
+    def start_preparation(order_id: str, category: str) -> OrderDetail:
+        """
+        Transitions a single Smart Prep token (mess or continental) from placed → preparing
+        and inserts it into the appropriate kitchen queue.
+
+        Only the token whose document ID matches `category` is modified.
+        All other tokens remain untouched.
+        """
+        order_ref, snap = OrderRepository._find_order_doc_ref(order_id)
+        if not order_ref or not snap or not snap.exists:
+            raise ValueError(f"Order '{order_id}' not found.")
+
+        # Direct lookup by doc ID (token doc ID == category string)
+        token_ref = order_ref.collection("tokens").document(category)
+        token_snap = token_ref.get()
+        if not token_snap.exists:
+            raise ValueError(f"Token '{category}' not found for order '{order_id}'.")
+
+        token_data = token_snap.to_dict() or {}
+        current_status = str(token_data.get("token_status", "")).lower()
+
+        if current_status == "preparing":
+            # Idempotent — already preparing, return current state safely
+            return OrderRepository.get_order_by_id(snap.id)
+
+        if current_status != "placed":
+            raise ValueError(
+                f"Cannot start preparation: token '{category}' is in '{current_status}' status "
+                f"(must be 'placed')."
+            )
+
+        # Calculate queue parameters from token items
+        items_for_cat = token_data.get("items", [])
+        if not items_for_cat:
+            raise ValueError(
+                f"No items found in '{category}' token for order '{order_id}'. "
+                "Cannot start preparation."
+            )
+
+        queue_name = items_for_cat[0].get("item_name") or items_for_cat[0].get("name")
+        prep_units_in_queue = sum(float(item.get("prep_units", 0)) for item in items_for_cat)
+        cat_token_num = int(token_data.get("token_number", 0))
+        token_id = token_snap.id  # == category
+
+        # Require valid queue data — never silently skip queue insertion
+        if not queue_name or not prep_units_in_queue:
+            raise ValueError(
+                f"Missing queue data for '{category}' token: "
+                f"queue_name={queue_name!r}, prep_units_in_queue={prep_units_in_queue}. "
+                "Ensure checkout_service writes item_name and prep_units to token items."
+            )
+
+        # Check idempotency in the queue — do not insert if token_id already present
+        queue_ref = db.collection(_QUEUES_COL).document(queue_name)
+        queue_snap = queue_ref.get()
+        existing_entries = queue_snap.to_dict().get("queue", []) if queue_snap.exists else []
+        already_in_queue = any(e.get("token_id") == token_id for e in existing_entries)
+
+        batch = db.batch()
+
+        # 1. Update the specific token to preparing
+        batch.update(token_ref, {
+            "token_status": "preparing",
+            "queue_name": queue_name,
+            "prep_units_in_queue": prep_units_in_queue,
+            "prep_start_time": firestore.SERVER_TIMESTAMP,
+        })
+
+        # 2. Update categoryTokens.{category}.status on parent doc
+        # Also transition the root order status to 'preparing' if it is currently 'placed'
+        parent_updates = {
+            f"categoryTokens.{category}.status": "preparing",
+        }
+        if str(snap.to_dict().get("status", "")).lower() == "placed":
+            parent_updates["status"] = "preparing"
+            
+        batch.update(order_ref, parent_updates)
+
+        # 3. Insert into the kitchen queue (using the same schema as create_manual_order)
+        if not already_in_queue:
+            batch.set(queue_ref, {
+                "item_name": queue_name,
+                "avg_prep_time_mins": _get_default_prep_time(queue_name),
+                "queue": firestore.ArrayUnion([{
+                    "token_id": token_id,
+                    "order_id": order_id,
+                    "prep_units": prep_units_in_queue,
+                    "token_number": cat_token_num,
+                    "status": "preparing",
+                }]),
+                "total_prep_units_ahead": firestore.Increment(prep_units_in_queue),
+            }, merge=True)
+
+        batch.commit()
+        return OrderRepository.get_order_by_id(snap.id)
+
+    @staticmethod
+    def mark_prepared(order_id: str, category: str, staff_uid: str) -> OrderDetail:
+        """
+        Transitions a single Smart Prep token (mess or continental) from preparing → ready_for_pickup.
+        Sets prepared_at and collection_deadline (15 min from now).
+        Removes ONLY that token from its queue. Other tokens are untouched.
+        """
+        from datetime import timezone, timedelta
+
+        order_ref, snap = OrderRepository._find_order_doc_ref(order_id)
+        if not order_ref or not snap or not snap.exists:
+            raise ValueError(f"Order '{order_id}' not found.")
+
+        # Direct lookup by doc ID (token doc ID == category string)
+        token_ref = order_ref.collection("tokens").document(category)
+        token_snap = token_ref.get()
+        if not token_snap.exists:
+            raise ValueError(f"Token '{category}' not found for order '{order_id}'.")
+
+        token_data = token_snap.to_dict() or {}
+        current_status = str(token_data.get("token_status", "")).lower()
+
+        if current_status == "ready_for_pickup":
+            # Idempotent — already marked, return safely
+            return OrderRepository.get_order_by_id(snap.id)
+
+        if current_status != "preparing":
+            raise ValueError(
+                f"Cannot mark prepared: token '{category}' is in '{current_status}' status "
+                f"(must be 'preparing')."
+            )
+
+        queue_name = token_data.get("queue_name")
+        prep_units_in_queue = float(token_data.get("prep_units_in_queue") or 0)
+        cat_token_num = int(token_data.get("token_number", 0))
+        token_id = token_snap.id  # == category
+
+        now_utc = datetime.now(timezone.utc)
+
+        batch = db.batch()
+
+        # 1. Update the specific token to ready_for_pickup
+        batch.update(token_ref, {
+            "token_status": "ready_for_pickup",
+            "prepared_at": now_utc,
+            "prepared_by": staff_uid,
+        })
+
+        # 2. Update categoryTokens.{category}.status on parent doc
+        parent_updates = {
+            f"categoryTokens.{category}.status": "ready_for_pickup",
+        }
+
+        # Determine if parent order should become ready_for_pickup
+        all_tokens = list(order_ref.collection("tokens").stream())
+        _SMART_PREP_CATS = {"mess", "continental"}
+        all_ready_or_delivered = all(
+            (t.id == category) or 
+            (t.id not in _SMART_PREP_CATS) or 
+            (t.to_dict().get("token_status") in ("ready_for_pickup", "delivered", "discarded"))
+            for t in all_tokens
+        )
+        if all_ready_or_delivered:
+            parent_updates["status"] = "ready_for_pickup"
+
+        batch.update(order_ref, parent_updates)
+
+        # 3. Remove ONLY this token from its queue
+        if queue_name and prep_units_in_queue:
+            queue_ref = db.collection(_QUEUES_COL).document(queue_name)
+            # Remove both 'preparing' and 'waiting' variants for compatibility with manual orders
+            batch.update(queue_ref, {
+                "queue": firestore.ArrayRemove([{
+                    "token_id": token_id,
+                    "order_id": order_id,
+                    "prep_units": prep_units_in_queue,
+                    "token_number": cat_token_num,
+                    "status": "preparing",
+                }, {
+                    "token_id": token_id,
+                    "order_id": order_id,
+                    "prep_units": prep_units_in_queue,
+                    "token_number": cat_token_num,
+                    "status": "waiting",
+                }]),
+                "total_prep_units_ahead": firestore.Increment(-prep_units_in_queue),
+            })
+
+        batch.commit()
+        return OrderRepository.get_order_by_id(snap.id)
+
 

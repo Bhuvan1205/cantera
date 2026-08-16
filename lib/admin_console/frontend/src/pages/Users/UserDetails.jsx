@@ -135,12 +135,7 @@ export default function UserDetails() {
               <span className="text-on-surface-variant">Phone Number</span>
               <span className="font-medium text-on-surface">{profile.phone || '—'}</span>
             </div>
-            <div className="flex justify-between py-xs">
-              <span className="text-on-surface-variant">Pickup PIN</span>
-              <span className="font-data-mono font-medium text-on-surface">
-                {profile.pickup_pin || '—'}
-              </span>
-            </div>
+
             <div className="flex justify-between py-xs">
               <span className="text-on-surface-variant">Admin Privilege</span>
               <StatusBadge status={profile.is_admin ? 'active' : 'inactive'} size="xs" />

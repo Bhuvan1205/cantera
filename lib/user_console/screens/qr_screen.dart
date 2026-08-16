@@ -193,6 +193,7 @@ class _OrderQrScreenState extends State<OrderQrScreen> {
         if (categoryTokens != null && categoryTokens.isNotEmpty) {
           final sortedKeys = categoryTokens.keys.toList()..sort();
           for (final cat in sortedKeys) {
+            if (cat.toLowerCase() == 'mess' || cat.toLowerCase() == 'continental') continue; // DO NOT include Mess/Continental tokens for QR pickup
             final catData = categoryTokens[cat] as Map<String, dynamic>;
             final tokenId = catData['tokenId'] as String? ?? '';
             final tokenNumber =
@@ -217,6 +218,23 @@ class _OrderQrScreenState extends State<OrderQrScreen> {
 
         // Fallback: no categoryTokens → single legacy QR
         if (tokens.isEmpty) {
+          if (categoryTokens != null && categoryTokens.isNotEmpty) {
+            return Scaffold(
+              backgroundColor: AppColors.bg,
+              appBar: AppBar(
+                leading: IconButton(
+                  onPressed: () => Navigator.maybePop(context),
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                ),
+              ),
+              body: const Center(
+                child: Text(
+                  'No QR available for this order.',
+                  style: TextStyle(color: AppColors.textMuted),
+                ),
+              ),
+            );
+          }
           final isDelivered = overallStatus == 'delivered';
           final isCancelled = overallStatus == 'cancelled';
           return _buildScaffold(

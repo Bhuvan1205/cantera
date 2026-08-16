@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.abspath(backend_path))
 
 from fastapi.testclient import TestClient
 from main import app
-from auth.dependencies import get_current_user, get_current_admin
+from auth.dependencies import get_current_user, get_current_admin, get_current_staff_or_admin
 from features.orders.schemas import (
     CheckoutResponse,
     CheckoutTokenDetail,
@@ -177,6 +177,7 @@ except Exception as e:
 # M8 (P-07): QR Scan & OTP Verification
 try:
     app.dependency_overrides[get_current_user] = override_staff
+    app.dependency_overrides[get_current_staff_or_admin] = override_staff
     with patch.object(QrService, "process_qr_scan") as mock_scan:
         mock_scan.return_value = ScanQrResponse(
             order_id="ord_atomic_777",
@@ -236,7 +237,7 @@ except Exception as e:
 
 # M12 (P-15): CI/CD Automation Pipeline
 try:
-    workflow_file = os.path.join(os.path.dirname(__file__), "..", ".github", "workflows", "deploy_backend.yml")
+    workflow_file = os.path.join(os.path.dirname(__file__), "..", ".github", "workflows", "cd.yml")
     assert os.path.exists(workflow_file)
     with open(workflow_file, "r", encoding="utf-8") as f:
         wf_code = f.read()

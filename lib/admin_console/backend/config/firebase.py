@@ -26,6 +26,11 @@ Fail-Fast Contract:
 import os
 import sys
 import logging
+from dotenv import load_dotenv
+
+# Load .env from the admin_console root (one level above backend/)
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+load_dotenv(os.path.join(_BASE_DIR, ".env"))
 
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -40,10 +45,10 @@ logger = logging.getLogger("canteen-api.firebase")
 def _detect_mode() -> tuple[str, str | None]:
     """
     Determines credential mode by strict priority:
-      1. FIRESTORE_EMULATOR_HOST (CI / Offline testing)
+      1. FIRESTORE_EMULATOR_HOST (local emulator mode)
       2. GOOGLE_APPLICATION_CREDENTIALS (explicit local service account file)
-      3. Application Default Credentials (gcloud auth application-default login)
-      4. Cloud Run metadata server
+      3. Cloud Run metadata server
+      4. Application Default Credentials (gcloud auth application-default login)
 
     Returns:
         (mode_name, key_file_path_if_any)
@@ -68,7 +73,6 @@ def _detect_mode() -> tuple[str, str | None]:
 def _print_startup_banner(mode: str, project_id: str, credential_source: str) -> None:
     """Emits a structured startup diagnostic block to stdout."""
     env = os.environ.get("ENV", "dev")
-    emulator_host = os.environ.get("FIRESTORE_EMULATOR_HOST", "—")
 
     banner = f"""
 ╔══════════════════════════════════════════════════════╗
@@ -78,10 +82,6 @@ def _print_startup_banner(mode: str, project_id: str, credential_source: str) ->
 ║  Firestore Mode  : {mode:<34}║
 ║  Firebase Project: {project_id:<34}║
 ║  Credential Src  : {credential_source:<34}║"""
-
-    if mode == "emulator":
-        banner += f"""
-║  Emulator Host   : {emulator_host:<34}║"""
 
     banner += """
 ╚══════════════════════════════════════════════════════╝"""
@@ -114,13 +114,10 @@ def _initialize_firebase() -> None:
 
     try:
         if mode == "emulator":
-            # Priority 1: Emulator mode (CI / Offline testing)
+            # Priority 1: Local Firestore emulator (no GCP authentication required)
             from google.auth.credentials import AnonymousCredentials
-            from firebase_admin.credentials import _ExternalCredentials
-
-            anon_cred = _ExternalCredentials(AnonymousCredentials())
-            firebase_admin.initialize_app(anon_cred, options={"projectId": project_id})
-            credential_source = "None (Firestore Emulator — AnonymousCredentials)"
+            firebase_admin.initialize_app(AnonymousCredentials(), options={"projectId": project_id})
+            credential_source = f"Firestore Emulator ({os.environ.get('FIRESTORE_EMULATOR_HOST')})"
 
         elif mode == "service_account":
             # Priority 2: Explicit service account key file path
@@ -129,12 +126,12 @@ def _initialize_firebase() -> None:
             credential_source = f"Service Account Key: {os.path.basename(key_path)}"
 
         elif mode == "cloud_run":
-            # Priority 4: Cloud Run service account metadata server
-            firebase_admin.initialize_app(options={"projectId": project_id})
-            credential_source = "Cloud Run Service Account (Metadata Server)"
-
+elif mode == "cloud_run":
+    # Cloud Run service account metadata server
+    firebase_admin.initialize_app(options={"projectId": project_id})
+    credential_source = "Cloud Run Service Account (Metadata Server)"
         else:
-            # Priority 3: Application Default Credentials (gcloud / ADC)
+            # Priority 4: Application Default Credentials (gcloud / ADC)
             import google.auth
             from google.auth.exceptions import DefaultCredentialsError
 
@@ -144,9 +141,8 @@ def _initialize_firebase() -> None:
                 raise RuntimeError(
                     "No valid Google credentials found. Application Default Credentials are not configured.\n\n"
                     "Configure credentials using one of the following priority methods:\n"
-                    "  1. CI / Offline Testing: Set FIRESTORE_EMULATOR_HOST=127.0.0.1:9090\n"
-                    "  2. Explicit Service Account: Set GOOGLE_APPLICATION_CREDENTIALS=C:\\path\\to\\service_account.json\n"
-                    "  3. Application Default Credentials: Run 'gcloud auth application-default login'\n"
+                    "  1. Explicit Service Account: Set GOOGLE_APPLICATION_CREDENTIALS=C:\\path\\to\\service_account.json\n"
+                    "  2. Application Default Credentials: Run 'gcloud auth application-default login'\n"
                 ) from adc_err
 
             firebase_admin.initialize_app(options={"projectId": project_id})
@@ -177,23 +173,17 @@ def _initialize_firestore() -> "firestore.Client":
         logger.info("[Firebase] Firestore client initialized successfully.")
         return client
     except Exception as exc:
-        _emit_initialization_failure(_detect_mode(), exc)
+        _emit_initialization_failure(_detect_mode()[0], exc)
         raise RuntimeError(
             f"Firestore client initialization failed: {exc}\n\n"
             "Resolve this by choosing one of the following:\n"
             "\n"
-            "  [Option A] Local Emulator (Recommended for Development):\n"
-            "    1. Install Firebase CLI: npm install -g firebase-tools\n"
-            "    2. Start the emulator:   firebase emulators:start --only firestore\n"
-            "    3. Set env variable:     set FIRESTORE_EMULATOR_HOST=127.0.0.1:9090\n"
-            "    4. Restart the backend:  python -m uvicorn main:app --reload\n"
-            "\n"
-            "  [Option B] Live Firestore via Application Default Credentials (ADC):\n"
+            "  [Option A] Live Firestore via Application Default Credentials (ADC):\n"
             "    1. Install Google Cloud SDK: https://cloud.google.com/sdk/docs/install\n"
             "    2. Authenticate:             gcloud auth application-default login\n"
             "    3. Restart the backend:      python -m uvicorn main:app --reload\n"
             "\n"
-            "  [Option C] Service Account Key File (CI / Offline ADC):\n"
+            "  [Option B] Service Account Key File (CI / Offline ADC):\n"
             "    1. Download service account key from Firebase Console -> Project Settings -> Service Accounts\n"
             "    2. Set env variable: set GOOGLE_APPLICATION_CREDENTIALS=C:\\path\\to\\key.json\n"
             "    3. Restart the backend: python -m uvicorn main:app --reload\n"

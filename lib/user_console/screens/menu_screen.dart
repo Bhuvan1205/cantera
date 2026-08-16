@@ -4,6 +4,11 @@ import '../../theme/app_colors.dart';
 import '../utils/app_keys.dart';
 import '../widgets/app_bottom_nav.dart';
 import '../models/group_order_model.dart';
+import '../services/recommendation_service.dart';
+import '../widgets/app_bottom_nav.dart';
+import '../widgets/recommendation_card.dart';
+import '../../foodpulse/widgets/poll_modal.dart';
+import '../../foodpulse/widgets/suggestion_fab_widget.dart';
 
 // ─── DATA MODEL ──────────────────────────────────────────────────────────────
 
@@ -72,6 +77,10 @@ class _MenuScreenState extends State<MenuScreen> {
   late String _selectedCategory;
   final ScrollController _scrollController = ScrollController();
 
+  RecommendationState _recState = RecommendationState.loading;
+  List<MenuItem> _recommendations = [];
+  bool _isPersonalizedRecs = false;
+
   @override
   void initState() {
     super.initState();
@@ -80,6 +89,38 @@ class _MenuScreenState extends State<MenuScreen> {
         : (widget.categories.isNotEmpty
             ? widget.categories.first.toLowerCase()
             : 'all');
+    _fetchRecommendations();
+  }
+
+  @override
+  void didUpdateWidget(covariant MenuScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.items.isEmpty && widget.items.isNotEmpty) {
+      _fetchRecommendations();
+    } else if (widget.items != oldWidget.items && _recommendations.isNotEmpty) {
+      // Update recommendation objects to reflect latest stock/availability without fetching from Firestore
+      final newItemsMap = {for (var item in widget.items) item.name.toLowerCase().trim(): item};
+      setState(() {
+        _recommendations = _recommendations
+            .map((rec) => newItemsMap[rec.name.toLowerCase().trim()] ?? rec)
+            .toList();
+      });
+    }
+  }
+
+  Future<void> _fetchRecommendations() async {
+    if (widget.items.isEmpty) return;
+    
+    setState(() => _recState = RecommendationState.loading);
+    final (state, recs, isPersonalized) = await RecommendationService.getRecommendations(widget.items);
+    
+    if (mounted) {
+      setState(() {
+        _recState = state;
+        _recommendations = recs;
+        _isPersonalizedRecs = isPersonalized;
+      });
+    }
   }
 
   @override
@@ -146,6 +187,7 @@ class _MenuScreenState extends State<MenuScreen> {
                           children: [
                             _buildHeadline(),
                             const SizedBox(height: 24),
+                            _buildRecommendationsSection(),
                             _buildCategoryAndSearchRow(),
                             const SizedBox(height: 24),
                             _buildItemList(),
@@ -158,6 +200,12 @@ class _MenuScreenState extends State<MenuScreen> {
                   _CartBanner(
                     cart: widget.cart,
                     onViewCart: widget.onCartTap,
+                  ),
+                  // FoodPulse Suggestion Floating Action Button (FAB)
+                  Positioned(
+                    right: 20,
+                    bottom: widget.cart.isNotEmpty ? 160 : 100, // Elevated above bottom nav / cart banner
+                    child: const SuggestionFabWidget(),
                   ),
                 ],
               ),
@@ -192,6 +240,31 @@ class _MenuScreenState extends State<MenuScreen> {
             size: 28,
           ),
           tooltip: 'Group Order',
+          onPressed: () => PollModal.show(context),
+          icon: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              const Icon(
+                Icons.poll_rounded,
+                color: AppColors.primary,
+                size: 26,
+              ),
+              Positioned(
+                right: -2,
+                top: -2,
+                child: Container(
+                  width: 9,
+                  height: 9,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF7C3AED), // Purple active notification dot
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppColors.bg, width: 1.5),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          tooltip: 'Active Community Poll',
         ),
         Padding(
           padding: const EdgeInsets.only(right: 8.0),
@@ -233,6 +306,53 @@ class _MenuScreenState extends State<MenuScreen> {
     );
   }
 
+  Widget _buildRecommendationsSection() {
+    if (_recState == RecommendationState.loading) {
+      return const Padding(
+        padding: EdgeInsets.only(bottom: 24),
+        child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+      );
+    }
+    
+    if (_recState == RecommendationState.error || _recommendations.isEmpty) {
+      return const SizedBox.shrink(); // Hide if error or no recommendations
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _isPersonalizedRecs ? '⭐ Your Craving Corner' : '⭐ Canteen Buzz',
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: AppColors.primary,
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          height: 100,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: _recommendations.length,
+            clipBehavior: Clip.none,
+            itemBuilder: (context, index) {
+              final item = _recommendations[index];
+              return RecommendationCard(
+                name: item.name,
+                price: item.price,
+                imageUrl: item.imageUrl,
+                category: item.category,
+                onAddTap: () => widget.onAddToCart(item),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+
   Widget _buildCategoryAndSearchRow() {
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobile = screenWidth < 600;
@@ -243,7 +363,7 @@ class _MenuScreenState extends State<MenuScreen> {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: widget.categories.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final category = widget.categories[index];
           final normalizedCategory =
@@ -484,7 +604,7 @@ class _FoodCard extends StatelessWidget {
                                     ),
                                   );
                                 },
-                                errorBuilder: (_, _, _) => Container(
+                                errorBuilder: (context, error, stackTrace) => Container(
                                   color: const Color(0xFFF3EDE4),
                                   child: Icon(
                                     Icons.broken_image_outlined,
@@ -501,7 +621,7 @@ class _FoodCard extends StatelessWidget {
                                 // resolution. 220 = 110 logical px × 2× density.
                                 cacheWidth: 220,
                                 cacheHeight: 220,
-                                errorBuilder: (_, _, _) => Container(
+                                errorBuilder: (context, error, stackTrace) => Container(
                                   color: const Color(0xFFF3EDE4),
                                   child: Icon(
                                     Icons.broken_image_outlined,

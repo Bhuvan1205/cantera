@@ -1,11 +1,24 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import '../../core/services/api_client.dart';
+import '../../core/services/fcm_service.dart';
 
 class AuthService {
   const AuthService._();
 
   static Future<void> signOut() async {
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null) {
+        try {
+          await FcmService.instance.deleteTokenFromBackend(token);
+        } catch (_) {
+          // Ignore backend failure; proceed to invalidate token on device
+        }
+        await FirebaseMessaging.instance.deleteToken();
+      }
+    } catch (_) {}
     await FirebaseAuth.instance.signOut();
   }
 
@@ -107,6 +120,3 @@ class AuthService {
     }
   }
 }
-
-
-
