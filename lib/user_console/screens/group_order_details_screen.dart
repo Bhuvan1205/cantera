@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:qr_flutter/qr_flutter.dart';
+import 'package:flutter/services.dart';
 import '../../theme/app_colors.dart';
 import '../models/group_order_model.dart';
 import '../services/group_order_service.dart';
@@ -196,16 +196,65 @@ class _GroupOrderDetailsScreenState extends State<GroupOrderDetailsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          Center(
-            child: QrImageView(
-              data: 'cantera://group/join?code=${group.groupCode}',
-              size: 180,
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+            decoration: BoxDecoration(
+              color: AppColors.cardBg,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppColors.border),
             ),
-          ),
-          Center(
-            child: Text(
-              group.groupCode,
-              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+            child: Column(
+              children: [
+                const Text(
+                  'GROUP CODE',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.5,
+                    color: AppColors.textMuted,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SelectableText(
+                  group.groupCode,
+                  style: const TextStyle(
+                    fontSize: 34,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 4.0,
+                    color: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Share this code with friends to join the group',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textMuted,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 14),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: group.groupCode));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Group code copied to clipboard!'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.copy_rounded, size: 18),
+                  label: const Text('Copy Code'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 20),
