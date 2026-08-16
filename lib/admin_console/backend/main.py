@@ -15,7 +15,6 @@ from config.settings import ALLOWED_ORIGINS, ENV
 # initialized (bad/missing credentials), this raises RuntimeError immediately,
 # before FastAPI registers any middleware or route.
 import config.firebase  # noqa: F401
-import config.firebase  # noqa: F401
 from config.logging import setup_logging
 
 setup_logging()

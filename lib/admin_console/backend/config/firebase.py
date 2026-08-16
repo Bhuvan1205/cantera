@@ -126,10 +126,9 @@ def _initialize_firebase() -> None:
             credential_source = f"Service Account Key: {os.path.basename(key_path)}"
 
         elif mode == "cloud_run":
-elif mode == "cloud_run":
-    # Cloud Run service account metadata server
-    firebase_admin.initialize_app(options={"projectId": project_id})
-    credential_source = "Cloud Run Service Account (Metadata Server)"
+            # Cloud Run service account metadata server
+            firebase_admin.initialize_app(options={"projectId": project_id})
+            credential_source = "Cloud Run Service Account (Metadata Server)"
         else:
             # Priority 4: Application Default Credentials (gcloud / ADC)
             import google.auth

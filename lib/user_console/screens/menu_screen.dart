@@ -5,7 +5,6 @@ import '../utils/app_keys.dart';
 import '../widgets/app_bottom_nav.dart';
 import '../models/group_order_model.dart';
 import '../services/recommendation_service.dart';
-import '../widgets/app_bottom_nav.dart';
 import '../widgets/recommendation_card.dart';
 import '../../foodpulse/widgets/poll_modal.dart';
 import '../../foodpulse/widgets/suggestion_fab_widget.dart';
@@ -240,6 +239,8 @@ class _MenuScreenState extends State<MenuScreen> {
             size: 28,
           ),
           tooltip: 'Group Order',
+        ),
+        IconButton(
           onPressed: () => PollModal.show(context),
           icon: Stack(
             clipBehavior: Clip.none,

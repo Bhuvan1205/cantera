@@ -122,7 +122,6 @@ async function parseCSV(filePath) {
 }
 
 async function main() {
-async function main() {
   if (IS_EMULATOR) {
     console.log("========================================");
     console.log("FIRESTORE SEED TARGET: LOCAL EMULATOR");
