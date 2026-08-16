@@ -167,44 +167,102 @@ class GroupOrderService:
         uid, code = caller['uid'], payload.group_code.upper()
         if GroupOrderService._active_group_for(uid):
             _error('You already participate in an active group order.', status.HTTP_409_CONFLICT)
+            
+        pre_query = db.collection('group_orders').where('memberUids', 'array_contains', uid).stream()
+        known_group_ids = [doc.id for doc in pre_query]
+        
         user_name = _resolve_user_name(uid, caller, payload.user_name)
         reservation = db.collection('group_order_codes').document(code).get()
         if not reservation.exists:
             _error('Group code was not found.', status.HTTP_404_NOT_FOUND)
-        ref = db.collection('group_orders').document(reservation.to_dict()['groupId'])
+            
+        target_group_id = reservation.to_dict()['groupId']
+        ref = db.collection('group_orders').document(target_group_id)
+        lock_ref = db.collection('user_group_locks').document(uid)
+        
         tx = db.transaction()
         @firestore.transactional
         def join_tx(transaction):
+            lock_snap = lock_ref.get(transaction=transaction)
+            lock_data = lock_snap.to_dict() or {} if lock_snap.exists else None
+            
+            active_group_snap = None
+            if lock_data and lock_data.get('activeGroupId'):
+                active_group_snap = db.collection('group_orders').document(lock_data['activeGroupId']).get(transaction=transaction)
+                
+            query_results = []
+            for gid in known_group_ids:
+                if lock_data and gid == lock_data.get('activeGroupId'):
+                    continue
+                doc_snap = db.collection('group_orders').document(gid).get(transaction=transaction)
+                if doc_snap.exists:
+                    query_results.append(doc_snap)
+                    
+            def is_active(g_snap):
+                if not g_snap.exists: return False
+                d = g_snap.to_dict() or {}
+                if uid not in d.get('memberUids', []): return False
+                s = d.get('status')
+                if s == 'PAYING': return True
+                if s == 'OPEN':
+                    exp = d.get('expiresAt')
+                    if not exp or exp > _now(): return True
+                return False
+
+            has_active = False
+            if active_group_snap and is_active(active_group_snap):
+                has_active = True
+            for res_snap in query_results:
+                if is_active(res_snap):
+                    has_active = True
+                    break
+            
+            if has_active:
+                _error('You already participate in an active group order.', status.HTTP_409_CONFLICT)
+                
             snap = ref.get(transaction=transaction)
             if not snap.exists: _error('Group order was not found.', 404)
             data = snap.to_dict() or {}
             if data.get('status') != 'OPEN': _error('This group is no longer open.', 409)
             if data.get('expiresAt') and data['expiresAt'] <= _now(): _error('This group has expired.', 409)
             if uid in data.get('memberUids', []): _error('You already joined this group.', 409)
+            
             members = data.get('members', []) + [{'uid': uid, 'name': user_name}]
             transaction.update(ref, {'members': members, 'memberUids': data.get('memberUids', []) + [uid],
                                     'items': data.get('items', []) + _normalise_items(payload.items, uid), 'updatedAt': firestore.SERVER_TIMESTAMP})
+            transaction.set(lock_ref, {'activeGroupId': target_group_id, 'updatedAt': firestore.SERVER_TIMESTAMP})
+            
         join_tx(tx)
         return ref.get().to_dict()
 
     @staticmethod
     def leave(caller: dict, group_id: str):
         uid, ref = caller['uid'], db.collection('group_orders').document(group_id)
+        lock_ref = db.collection('user_group_locks').document(uid)
         tx = db.transaction()
         @firestore.transactional
         def leave_tx(transaction):
             snap = ref.get(transaction=transaction)
+            lock_snap = lock_ref.get(transaction=transaction)
+            
             if not snap.exists: _error('Group order was not found.', 404)
             data = snap.to_dict() or {}
             if data.get('status') == 'PAYING': _error('A payment is in progress.', 409)
             if data.get('status') != 'OPEN': _error('Group is locked.', 409)
-            if uid not in data.get('memberUids', []): _error('You are not a group member.', 403)
-            if data.get('initiatorUid') == uid:
-                _error('The initiator cannot leave; use cancel instead.', status.HTTP_409_CONFLICT)
-            transaction.update(ref, {'members': [m for m in data.get('members', []) if m.get('uid') != uid],
-                'memberUids': [x for x in data.get('memberUids', []) if x != uid],
-                'items': [x for x in data.get('items', []) if x.get('addedByUid') != uid], 'updatedAt': firestore.SERVER_TIMESTAMP})
-        leave_tx(tx); return ref.get().to_dict()
+            if uid not in data.get('memberUids', []): _error('You are not in this group.', 409)
+            if data.get('initiatorUid') == uid: _error('The initiator cannot leave.', 409)
+            
+            transaction.update(ref, {
+                'members': [m for m in data.get('members', []) if m.get('uid') != uid],
+                'memberUids': [u for u in data.get('memberUids', []) if u != uid],
+                'items': [i for i in data.get('items', []) if i.get('addedByUid') != uid],
+                'updatedAt': firestore.SERVER_TIMESTAMP
+            })
+            if lock_snap.exists and lock_snap.to_dict().get('activeGroupId') == group_id:
+                transaction.delete(lock_ref)
+                
+        leave_tx(tx)
+        return True
 
     @staticmethod
     def cancel(caller: dict, group_id: str):
@@ -216,9 +274,23 @@ class GroupOrderService:
             if not snap.exists: _error('Group order was not found.', 404)
             data = snap.to_dict() or {}
             if data.get('initiatorUid') != uid: _error('Only the initiator can cancel.', 403)
-            if data.get('status') != 'OPEN': _error('Only an open group can be cancelled.', 409)
+            if data.get('status') not in ACTIVE: _error('Group is not active.', 409)
+            if data.get('status') == 'PAYING': _error('A payment is in progress.', 409)
+            
+            member_uids = data.get('memberUids', [])
+            lock_snaps = {}
+            for member_uid in member_uids:
+                l_ref = db.collection('user_group_locks').document(member_uid)
+                lock_snaps[l_ref] = l_ref.get(transaction=transaction)
+                
             transaction.update(ref, {'status': 'CANCELLED', 'updatedAt': firestore.SERVER_TIMESTAMP})
-        cancel_tx(tx); return ref.get().to_dict()
+            
+            for l_ref, l_snap in lock_snaps.items():
+                if l_snap.exists and l_snap.to_dict().get('activeGroupId') == group_id:
+                    transaction.delete(l_ref)
+                    
+        cancel_tx(tx)
+        return True
 
     @staticmethod
     def mutate_items(caller: dict, payload):
