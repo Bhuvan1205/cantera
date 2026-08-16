@@ -81,6 +81,7 @@ export default function OrderList() {
               <option value="all">All Orders</option>
               <option value="placed">Placed</option>
               <option value="preparing">Preparing</option>
+              <option value="ready_for_pickup">Ready for Pickup</option>
               <option value="delivered">Delivered</option>
               <option value="cancelled">Cancelled</option>
             </select>
@@ -204,7 +205,14 @@ export default function OrderList() {
                       </td>
 
                       <td className="p-table-cell-padding">
-                        <StatusBadge status={status} size="xs" />
+                        <div className="flex flex-col gap-1 items-start">
+                          <StatusBadge status={status} size="xs" />
+                          {ord.overall_status && (
+                            <span className="text-[10px] uppercase font-bold tracking-wider text-on-surface-variant">
+                              {ord.overall_status}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       <td className="p-table-cell-padding text-right">

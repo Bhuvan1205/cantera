@@ -21,8 +21,8 @@ class StaffOrderCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final shortId = orderId.length > 4 ? orderId.substring(0, 4).toUpperCase() : orderId.toUpperCase();
     final orderNumber = '#$shortId';
-    final items = _orderItemsFrom(data['items']);
-    final orderStatus = (data['status'] as String? ?? 'placed');
+    final orderStatus = (data['status'] as String? ?? 'placed').trim().toLowerCase();
+    final items = _orderItemsFrom(data['items'], orderStatus);
     final paymentStatus = _paymentStatusFrom(data);
     final total = (data['total'] as num?)?.toInt() ?? 0;
 
@@ -162,10 +162,19 @@ class StaffOrderCard extends StatelessWidget {
     );
   }
 
-  List<String> _orderItemsFrom(dynamic rawItems) {
+  List<String> _orderItemsFrom(dynamic rawItems, String orderStatus) {
     if (rawItems is! List) return const [];
+    
+    final hideNonSmartPrep = orderStatus == 'preparing' || orderStatus == 'ready_for_pickup';
+    const smartPrepCats = {'mess', 'continental'};
+
     return rawItems
         .whereType<Map>()
+        .where((item) {
+          if (!hideNonSmartPrep) return true;
+          final cat = (item['category'] as String?)?.toLowerCase() ?? '';
+          return smartPrepCats.contains(cat);
+        })
         .map((item) {
           final name = item['name'] as String? ?? 'Item';
           final quantity = ((item['quantity'] ?? 1) as num).toInt();

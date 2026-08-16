@@ -246,18 +246,15 @@ class CheckoutService:
                 if overall_token_num == 0:
                     overall_token_num = allocated_token
 
-                is_mess = (category == "mess")
-                otp = f"{random.randint(1000, 9999)}" if is_mess else None
-                qr_code_data = f"{order_id}:{category}:{allocated_token}"
+                is_smart_prep = category in ["mess", "continental"]
+                qr_code_data = "" if is_smart_prep else f"{order_id}:{category}:{allocated_token}"
 
                 token_doc_data = {
                     "token_number": allocated_token,
                     "counter": category,
                     "token_status": "placed",
-                    "qr_valid": True,
+                    "qr_valid": not is_smart_prep,
                     "qr_code_data": qr_code_data,
-                    "otp": otp,
-                    "otp_verified": False if is_mess else None,
                     "items": cat_items,
                     "created_at": firestore.SERVER_TIMESTAMP,
                 }
@@ -268,7 +265,6 @@ class CheckoutService:
                     "tokenNumber": allocated_token,
                     "status": "placed",
                     "items": cat_items,
-                    "otp": otp,
                 }
 
                 tokens_out.append(
@@ -276,7 +272,6 @@ class CheckoutService:
                         counter=category,
                         token_number=allocated_token,
                         qr_valid=True,
-                        otp=otp,
                     )
                 )
 

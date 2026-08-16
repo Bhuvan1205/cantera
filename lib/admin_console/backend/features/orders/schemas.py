@@ -24,8 +24,6 @@ class TokenDocument(BaseModel):
     token_number: int
     qr_valid: bool
     qr_code_data: str
-    otp: Optional[str] = None              # Only for mess tokens
-    otp_verified: Optional[bool] = None    # Only for mess tokens
     queue_name: Optional[str] = None
     queue_position: Optional[int] = None
     prep_units_in_queue: Optional[float] = None
@@ -47,8 +45,6 @@ class TokenDocument(BaseModel):
             token_number=int(data.get("token_number", 0)),
             qr_valid=data.get("qr_valid", False),
             qr_code_data=data.get("qr_code_data", ""),
-            otp=data.get("otp"),
-            otp_verified=data.get("otp_verified"),
             queue_name=data.get("queue_name"),
             queue_position=data.get("queue_position"),
             prep_units_in_queue=data.get("prep_units_in_queue"),
@@ -208,7 +204,6 @@ class CheckoutTokenDetail(BaseModel):
     counter: str
     token_number: int
     qr_valid: bool
-    otp: Optional[str] = None
 
 
 class CheckoutResponse(BaseModel):

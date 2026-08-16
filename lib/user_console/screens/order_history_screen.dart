@@ -278,10 +278,6 @@ class OrderHistoryCard extends StatelessWidget {
                         ),
                       ],
                     ),
-                    if (order.actionLabel != null) ...[
-                      const SizedBox(height: 12),
-                      _ReorderLabel(label: order.actionLabel!),
-                    ],
                   ],
                 ),
               ),

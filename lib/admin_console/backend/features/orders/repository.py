@@ -208,13 +208,11 @@ class OrderRepository:
                 "items": display_items[cat],
             }
 
-            otp = None
             queue_name = None
             queue_position = None
             prep_units_in_queue = None
 
             if is_mess:
-                otp = str(random.randint(1000, 9999))
                 queue_name = items_for_cat[0]["item_name"]
                 prep_units_in_queue = sum(item["prep_units"] for item in items_for_cat)
 
@@ -231,8 +229,6 @@ class OrderRepository:
                 "token_number": cat_token_num,
                 "qr_valid": True,
                 "qr_code_data": qr_code_data,
-                "otp": otp,
-                "otp_verified": False if is_mess else None,
                 "queue_name": queue_name,
                 "queue_position": queue_position,
                 "prep_units_in_queue": prep_units_in_queue,
@@ -629,7 +625,6 @@ class OrderRepository:
         token_id = token_snap.id  # == category
 
         now_utc = datetime.now(timezone.utc)
-        deadline_utc = now_utc + timedelta(minutes=15)
 
         batch = db.batch()
 
@@ -637,7 +632,6 @@ class OrderRepository:
         batch.update(token_ref, {
             "token_status": "ready_for_pickup",
             "prepared_at": now_utc,
-            "collection_deadline": deadline_utc,
             "prepared_by": staff_uid,
         })
 
@@ -648,8 +642,11 @@ class OrderRepository:
 
         # Determine if parent order should become ready_for_pickup
         all_tokens = list(order_ref.collection("tokens").stream())
+        _SMART_PREP_CATS = {"mess", "continental"}
         all_ready_or_delivered = all(
-            (t.id == category) or (t.to_dict().get("token_status") in ("ready_for_pickup", "delivered", "discarded"))
+            (t.id == category) or 
+            (t.id not in _SMART_PREP_CATS) or 
+            (t.to_dict().get("token_status") in ("ready_for_pickup", "delivered", "discarded"))
             for t in all_tokens
         )
         if all_ready_or_delivered:

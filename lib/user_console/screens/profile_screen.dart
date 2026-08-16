@@ -877,24 +877,24 @@ class _PinCard extends StatelessWidget {
                             ),
                           )
                         : Text(
-                            currentPin == null
+                            (currentPin == null || currentPin!.isEmpty)
                                 ? 'Not set'
                                 : (pinVisible ? currentPin! : '• • • •'),
                             style: TextStyle(
-                              fontSize: currentPin != null && pinVisible ? 22 : 18,
+                              fontSize: (currentPin != null && currentPin!.isNotEmpty) && pinVisible ? 22 : 18,
                               fontWeight: FontWeight.w800,
-                              color: currentPin == null
+                              color: (currentPin == null || currentPin!.isEmpty)
                                   ? AppColors.textMuted
                                   : AppColors.primary,
                               letterSpacing:
-                                  currentPin != null && pinVisible ? 6 : 4,
+                                  (currentPin != null && currentPin!.isNotEmpty) && pinVisible ? 6 : 4,
                             ),
                           ),
                   ],
                 ),
               ),
               // Eye toggle
-              if (currentPin != null)
+              if (currentPin != null && currentPin!.isNotEmpty)
                 IconButton(
                   onPressed: onToggleVisibility,
                   icon: Icon(

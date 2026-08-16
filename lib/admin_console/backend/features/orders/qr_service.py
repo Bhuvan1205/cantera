@@ -120,11 +120,14 @@ class QrService:
                 "scanned_by": staff_uid,
                 "delivered_at": firestore.SERVER_TIMESTAMP,
             })
+            parent_updates = {
+                f"categoryTokens.{counter}.status": "delivered",
+            }
             if all_delivered:
-                batch.update(order_ref, {
-                    "status": "delivered",
-                    "overall_status": "completed",
-                })
+                parent_updates["status"] = "delivered"
+                parent_updates["overall_status"] = "completed"
+                
+            batch.update(order_ref, parent_updates)
             batch.commit()
 
             return ScanQrResponse(
@@ -138,94 +141,86 @@ class QrService:
     @staticmethod
     def verify_otp(staff_uid: str, order_id: str, counter: str, otp: str) -> VerifyOtpResponse:
         order_ref = db.collection("Orders").document(order_id)
-        token_ref = order_ref.collection("tokens").document(counter)
-        token_snap = token_ref.get()
+        order_snap = order_ref.get()
+        if not order_snap.exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Order not found.",
+            )
 
-        if not token_snap.exists:
-            # Fallback search by counter field
-            query = order_ref.collection("tokens").where("counter", "==", counter.lower()).limit(1).stream()
-            matching = list(query)
-            if matching:
-                token_ref = matching[0].reference
-                token_snap = matching[0]
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Token for counter '{counter}' not found.",
-                )
-
-        token_data = token_snap.to_dict() or {}
-        token_status = str(token_data.get("token_status", "")).lower()
-
-        if token_status == "delivered":
+        order_data = order_snap.to_dict() or {}
+        order_status = str(order_data.get("status", "")).lower()
+        if order_status == "delivered":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Token is already delivered.",
+                detail="Order is already delivered.",
+            )
+
+        user_id = order_data.get("userId")
+        print(f"[VERIFY_OTP] raw user_id from order: {repr(user_id)}")
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Order has no associated user.",
+            )
+
+        user_snap = db.collection("Users").document(user_id).get()
+        expected_otp = ""
+        if user_snap.exists:
+            user_data = user_snap.to_dict()
+            print(f"[VERIFY_OTP] user_data from DB: {user_data}")
+            expected_otp = str(user_data.get("pickupPin", "")).strip()
+            print(f"[VERIFY_OTP] extracted expected_otp: '{expected_otp}'")
+
+        print(f"[VERIFY_OTP] final expected_otp: '{expected_otp}', provided otp: '{otp.strip()}'")
+
+        if not expected_otp:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User has not set a Delivery PIN in their profile.",
             )
             
-        if token_status == "discarded":
+        if expected_otp != otp.strip():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Token has been discarded and cannot be collected.",
-            )
-            
-        if token_status != "ready_for_pickup":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Token is not ready for pickup (current status: {token_status}).",
+                detail="Invalid PIN. Please check with the student.",
             )
 
-        # Check deadline
-        from datetime import datetime, timezone
-        deadline = token_data.get("collection_deadline")
-        if deadline:
-            if isinstance(deadline, str):
-                try:
-                    deadline_dt = datetime.fromisoformat(deadline.replace("Z", "+00:00"))
-                except:
-                    deadline_dt = None
-            else:
-                deadline_dt = deadline
-            
-            if deadline_dt and datetime.now(timezone.utc) > deadline_dt:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Collection deadline has expired.",
-                )
-
-        expected_otp = str(token_data.get("otp", "")).strip()
-
-        if not expected_otp or expected_otp != otp.strip():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid OTP. Please check with the student.",
-            )
-
-        # Read all sibling tokens to determine order completion
+        # Mark only Smart-Prep tokens of this order as delivered when PIN is verified
         all_tokens = list(order_ref.collection("tokens").stream())
-        all_delivered = all(
-            (t.id == token_ref.id or t.to_dict().get("token_status") == "delivered")
-            for t in all_tokens
-        )
-
-        # Single batched commit: token update + optional order completion
+        _SMART_PREP_CATS = {"mess", "continental"}
+        
         batch = db.batch()
-        batch.update(token_ref, {
-            "token_status": "delivered",
-            "otp_verified": True,
-            "verified_by": staff_uid,
-            "delivered_at": firestore.SERVER_TIMESTAMP,
-        })
+        parent_updates = {}
+        
+        all_delivered = True
+        for t in all_tokens:
+            token_status = t.to_dict().get("token_status", "").lower()
+            if t.id in _SMART_PREP_CATS:
+                if token_status != "delivered":
+                    batch.update(t.reference, {
+                        "token_status": "delivered",
+                        "otp_verified": True,
+                        "verified_by": staff_uid,
+                        "delivered_at": firestore.SERVER_TIMESTAMP,
+                    })
+                    parent_updates[f"categoryTokens.{t.id}.status"] = "delivered"
+            else:
+                if token_status != "delivered":
+                    all_delivered = False
+                    
         if all_delivered:
-            batch.update(order_ref, {
-                "status": "delivered",
-                "overall_status": "completed",
-            })
+            parent_updates["status"] = "delivered"
+            parent_updates["overall_status"] = "completed"
+            
+        if parent_updates:
+            batch.update(order_ref, parent_updates)
+            
         batch.commit()
 
         return VerifyOtpResponse(
             order_id=order_id,
             counter=counter,
             status="delivered",
-            message="OTP verified successfully. Order marked as delivered.",
+            message="OTP verified successfully. Mess/Continental items marked as delivered.",
         )

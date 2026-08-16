@@ -712,10 +712,8 @@ class _SmartPreparationSection extends StatelessWidget {
     } else if (tokenStatus == 'preparing') {
       return const _PreparingStateView();
     } else if (tokenStatus == 'ready_for_pickup') {
-      final deadlineTimestamp = data['collection_deadline'] as Timestamp?;
       final otp = data['otp'] as String?;
       return _ReadyStateView(
-        deadline: deadlineTimestamp?.toDate(),
         otp: otp,
       );
     } else if (tokenStatus == 'discarded') {
@@ -758,10 +756,7 @@ class _PlacedStateViewState extends State<_PlacedStateView> {
         content: const Text(
           'Once you confirm preparation:\n\n'
           '• Your order will immediately be sent to the kitchen.\n'
-          '• Cancellation/refund will no longer be available once preparation begins.\n'
-          '• Once your food is marked as prepared, you have only 15 minutes to collect it.\n'
-          '• If you do not collect it within 15 minutes, the food will be discarded.\n'
-          '• A discarded order will NOT be refunded.',
+          '• Cancellation/refund will no longer be available once preparation begins.',
           style: TextStyle(
             color: AppColors.textPrimary,
             fontSize: 14,
@@ -769,23 +764,42 @@ class _PlacedStateViewState extends State<_PlacedStateView> {
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(color: AppColors.textMuted),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: 48,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'Start Preparing',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
               ),
-            ),
-            child: const Text('Start Preparing'),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 44,
+                child: TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(
+                      color: AppColors.error,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -897,69 +911,9 @@ class _PreparingStateView extends StatelessWidget {
   }
 }
 
-class _ReadyStateView extends StatefulWidget {
-  const _ReadyStateView({this.deadline, this.otp});
-  final DateTime? deadline;
+class _ReadyStateView extends StatelessWidget {
+  const _ReadyStateView({this.otp});
   final String? otp;
-
-  @override
-  State<_ReadyStateView> createState() => _ReadyStateViewState();
-}
-
-class _ReadyStateViewState extends State<_ReadyStateView> {
-  Timer? _timer;
-  int _secondsRemaining = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _startTimer();
-  }
-
-  @override
-  void didUpdateWidget(covariant _ReadyStateView oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.deadline != widget.deadline) {
-      _startTimer();
-    }
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  void _startTimer() {
-    _timer?.cancel();
-    if (widget.deadline != null) {
-      _updateSeconds();
-      _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        _updateSeconds();
-      });
-    }
-  }
-  
-  void _updateSeconds() {
-    final difference = widget.deadline!.difference(DateTime.now()).inSeconds;
-    if (difference <= 0) {
-      if (_secondsRemaining != 0) {
-        setState(() {
-          _secondsRemaining = 0;
-        });
-      }
-    } else {
-      setState(() {
-        _secondsRemaining = difference;
-      });
-    }
-  }
-
-  String _formatDuration(int totalSeconds) {
-    final minutes = (totalSeconds ~/ 60).toString().padLeft(2, '0');
-    final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -978,24 +932,8 @@ class _ReadyStateViewState extends State<_ReadyStateView> {
         ),
         const SizedBox(height: 8),
         const Text(
-          'Collect your food within 15 minutes.',
+          'Please collect your food from the counter.',
           style: TextStyle(fontSize: 14, color: AppColors.textMuted),
-        ),
-        const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          decoration: BoxDecoration(
-            color: AppColors.success.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            _formatDuration(_secondsRemaining),
-            style: const TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.w900,
-              color: AppColors.success,
-            ),
-          ),
         ),
         const SizedBox(height: 24),
         const Text(
@@ -1009,7 +947,7 @@ class _ReadyStateViewState extends State<_ReadyStateView> {
         ),
         const SizedBox(height: 8),
         Text(
-          widget.otp ?? '----',
+          otp ?? '----',
           style: const TextStyle(
             fontSize: 40,
             fontWeight: FontWeight.w900,
@@ -1019,7 +957,7 @@ class _ReadyStateViewState extends State<_ReadyStateView> {
         ),
         const SizedBox(height: 12),
         const Text(
-          'Tell this PIN to the canteen staff when collecting your meal.',
+          'Tell your 4-digit Profile PIN to the canteen staff when collecting your meal.',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 13,

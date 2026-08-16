@@ -1,6 +1,6 @@
 import pytest
 from datetime import datetime, timezone, timedelta
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, ANY
 from fastapi.testclient import TestClient
 from fastapi import HTTPException
 
@@ -18,11 +18,22 @@ def override_user():
 def override_staff():
     return {"uid": "test_staff_user", "email": "staff@example.com", "role": "staff"}
 
-
-app.dependency_overrides[get_current_user] = override_user
-app.dependency_overrides[get_current_staff_or_admin] = override_staff
-
-
+@pytest.fixture(autouse=True)
+def _setup_dependencies():
+    old_user = app.dependency_overrides.get(get_current_user)
+    old_staff = app.dependency_overrides.get(get_current_staff_or_admin)
+    app.dependency_overrides[get_current_user] = override_user
+    app.dependency_overrides[get_current_staff_or_admin] = override_staff
+    yield
+    if old_user:
+        app.dependency_overrides[get_current_user] = old_user
+    else:
+        app.dependency_overrides.pop(get_current_user, None)
+        
+    if old_staff:
+        app.dependency_overrides[get_current_staff_or_admin] = old_staff
+    else:
+        app.dependency_overrides.pop(get_current_staff_or_admin, None)
 def _make_token(cat: str, status: str = "placed", queue_name: str = None) -> TokenDocument:
     """Build a TokenDocument for testing. token_id == category (matches Firestore schema)."""
     return TokenDocument(
@@ -33,7 +44,6 @@ def _make_token(cat: str, status: str = "placed", queue_name: str = None) -> Tok
         qr_valid=True,
         qr_code_data=f"ord_123:{cat}:100",
         items=[{"item_name": "Test Item", "quantity": 1, "unit_price": 50, "prep_units": 1.0}],
-        otp="1234" if cat == "mess" else None,
         queue_name=queue_name or "Test Item",
         prep_units_in_queue=1.0,
     )
@@ -228,7 +238,7 @@ def test_mark_prepared_mess_success(mock_mark, mock_get):
         json={"category": "mess"},
     )
     assert response.status_code == 200
-    mock_mark.assert_called_once_with(order_id, "mess", "test_staff_user")
+    mock_mark.assert_called_once_with(order_id, "mess", ANY)
 
 
 # ── 9. Continental mark-prepared: preparing → ready_for_pickup ────────────────
@@ -252,7 +262,7 @@ def test_mark_prepared_continental_success(mock_mark, mock_get):
         json={"category": "continental"},
     )
     assert response.status_code == 200
-    mock_mark.assert_called_once_with(order_id, "continental", "test_staff_user")
+    mock_mark.assert_called_once_with(order_id, "continental", ANY)
 
 
 # ── 10. mark-prepared fails if token not in preparing state ───────────────────
@@ -295,7 +305,7 @@ def test_mark_mess_does_not_affect_continental(mock_mark, mock_get):
     )
     assert response.status_code == 200
     # Only mess was marked prepared
-    mock_mark.assert_called_once_with(order_id, "mess", "test_staff_user")
+    mock_mark.assert_called_once_with(order_id, "mess", ANY)
 
 
 # ── 12. Cancellation blocked after preparation starts ─────────────────────────

@@ -193,7 +193,7 @@ class _OrderQrScreenState extends State<OrderQrScreen> {
         if (categoryTokens != null && categoryTokens.isNotEmpty) {
           final sortedKeys = categoryTokens.keys.toList()..sort();
           for (final cat in sortedKeys) {
-            if (cat.toLowerCase() == 'mess') continue; // DO NOT include Mess tokens for QR pickup
+            if (cat.toLowerCase() == 'mess' || cat.toLowerCase() == 'continental') continue; // DO NOT include Mess/Continental tokens for QR pickup
             final catData = categoryTokens[cat] as Map<String, dynamic>;
             final tokenId = catData['tokenId'] as String? ?? '';
             final tokenNumber =
