@@ -75,6 +75,14 @@ class UserRepository:
     def upsert_user_profile(uid: str, payload: CreateUserProfileRequest) -> UserProfile:
         """
         Initializes or updates user profile in Users/{uid} and creates initial 0-balance wallet.
+
+        On CREATION (new document), writes the full required schema:
+          - uid, name, email, isAdmin (False), pickupPin, createdAt, updatedAt, role
+
+        On UPDATE (existing document), only merges mutable fields:
+          - name, email, pickupPin (if changing), updatedAt
+          - isAdmin is NEVER overwritten here — only admins can elevate privileges.
+
         Uses a WriteBatch to commit user and wallet writes in a single RPC.
         """
         user_ref = db.collection(UserRepository._users_col).document(uid)
@@ -83,26 +91,48 @@ class UserRepository:
         # Read both docs in a single batched read
         user_snap, wallet_snap = db.get_all([user_ref, wallet_ref])
 
-        data_to_set = {
-            "uid": uid,
-            "name": payload.name.strip(),
-            "email": payload.email.strip().lower(),
-            "updatedAt": firestore.SERVER_TIMESTAMP,
-        }
-        if payload.phone:
-            data_to_set["phone"] = payload.phone.strip()
-
         batch = db.batch()
 
         if not user_snap.exists:
-            data_to_set["createdAt"] = firestore.SERVER_TIMESTAMP
-            data_to_set["isAdmin"] = False
-            data_to_set["role"] = "customer"
-            batch.set(user_ref, data_to_set)
+            # ── NEW USER: Write the full required document schema ──────────────
+            # All 6 required fields are guaranteed to be present on creation.
+            new_doc = {
+                "uid": uid,
+                "name": payload.name.strip(),
+                "email": payload.email.strip().lower(),
+                "isAdmin": False,
+                "pickupPin": payload.pickup_pin.strip() if payload.pickup_pin else "",
+                "createdAt": firestore.SERVER_TIMESTAMP,
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+                "role": "customer",
+            }
+            if payload.pickup_pin:
+                new_doc["lastPinChange"] = firestore.SERVER_TIMESTAMP
+            if payload.phone:
+                new_doc["phone"] = payload.phone.strip()
+            batch.set(user_ref, new_doc)
+            committed_data = new_doc
         else:
-            batch.set(user_ref, data_to_set, merge=True)
+            # ── EXISTING USER: Merge only mutable profile fields ───────────────
+            # isAdmin is intentionally excluded — privilege escalation is admin-only.
+            existing = user_snap.to_dict() or {}
+            update_data: dict = {
+                "uid": uid,
+                "name": payload.name.strip(),
+                "email": payload.email.strip().lower(),
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+            }
+            if payload.phone:
+                update_data["phone"] = payload.phone.strip()
+            # Only update pickupPin if a new PIN is supplied and none exists yet
+            if payload.pickup_pin and not existing.get("pickupPin"):
+                update_data["pickupPin"] = payload.pickup_pin.strip()
+                update_data["lastPinChange"] = firestore.SERVER_TIMESTAMP
+            batch.set(user_ref, update_data, merge=True)
+            # Merge existing + updates for the return value
+            committed_data = {**existing, **update_data}
 
-        # Create wallet only if it doesn't already exist
+        # ── WALLET: Create initial 0-balance wallet if it doesn't exist ────────
         if not wallet_snap.exists:
             batch.set(wallet_ref, {
                 "balance": 0.0,
@@ -113,13 +143,7 @@ class UserRepository:
 
         batch.commit()
 
-        # Construct return value from known committed state — no extra Firestore read needed
-        known_data = {
-            **(user_snap.to_dict() or {} if user_snap.exists else {}),
-            **{k: v for k, v in data_to_set.items() if k != "updatedAt"},
-            "uid": uid,
-        }
-        return UserProfile.from_firestore(uid, known_data)
+        return UserProfile.from_firestore(uid, committed_data)
 
 
 

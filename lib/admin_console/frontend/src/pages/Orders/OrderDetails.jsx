@@ -115,6 +115,9 @@ export default function OrderDetails() {
               Order #{orderId}
             </span>
             <StatusBadge status={status} size="md" />
+            {order.overall_status && (
+              <StatusBadge status={order.overall_status} size="md" />
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-md font-body-md text-on-surface-variant">
@@ -240,7 +243,7 @@ export default function OrderDetails() {
                         <span className="font-label-caps text-[11px] uppercase font-bold text-primary">
                           {counterName}
                         </span>
-                        <StatusBadge status={tok.status || 'preparing'} size="xs" />
+                        <StatusBadge status={tok.token_status || tok.status || 'preparing'} size="xs" />
                       </div>
 
                       <div className="flex items-baseline gap-xs">
@@ -295,6 +298,7 @@ export default function OrderDetails() {
                 >
                   <option value="placed">Placed (Order Received)</option>
                   <option value="preparing">Preparing (In Kitchen)</option>
+                  <option value="ready_for_pickup">Ready for Pickup (At Counter)</option>
                   <option value="delivered">Delivered (Completed)</option>
                   <option value="cancelled">Cancelled (Void Order)</option>
                 </select>

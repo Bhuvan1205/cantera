@@ -611,6 +611,22 @@ class OrderDetailPage extends StatelessWidget {
             ? orderId.substring(0, 4).toUpperCase()
             : orderId.toUpperCase();
 
+        final categoryTokens = data['categoryTokens'] as Map<String, dynamic>? ?? {};
+
+        // Determine which Smart Prep categories exist in this order.
+        // Token document IDs are the category strings ('mess', 'continental').
+        const smartPrepCats = {'mess', 'continental'};
+        final smartPrepCategories = categoryTokens.keys
+            .where((k) => smartPrepCats.contains(k.toLowerCase()))
+            .toList();
+
+        // True if the order contains any non-Smart-Prep items (bakery, beverages, etc.)
+        // Those items still use the QR flow.
+        final hasNonSmartPrepItem = (data['items'] as List<dynamic>? ?? []).any(
+          (item) => !smartPrepCats.contains(
+              (item as Map<String, dynamic>)['category']?.toString().toLowerCase()),
+        );
+
         return OrderDetailScreen(
           orderId: orderId,
           orderNumber: '#CC-$shortId',
@@ -626,6 +642,9 @@ class OrderDetailPage extends StatelessWidget {
               'reason': 'User cancelled placed order',
             });
           },
+          smartPrepCategories: smartPrepCategories,
+          hasNonMessItem: hasNonSmartPrepItem,
+          overallStatus: data['overall_status'] as String? ?? 'active',
         );
       },
     );
@@ -715,6 +734,8 @@ String _normalizeOrderStatus(String? status) {
       return 'delivered';
     case 'refund_pending':
       return 'refund_pending';
+    case 'preparation_pending':
+      return 'preparation_pending';
     case 'refunded':
     case 'cancelled':
       return 'cancelled';

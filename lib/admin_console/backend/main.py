@@ -54,17 +54,12 @@ async def lifespan(app: FastAPI):
         await loop.run_in_executor(None, lambda: db.collection("_startup_probe_").limit(1).get())
 
     try:
-        await asyncio.wait_for(_probe(), timeout=10.0)
+        await asyncio.wait_for(_probe(), timeout=30.0)
         _log.info("[Lifespan] Firestore liveness probe PASSED. Backend is ready.")
     except asyncio.TimeoutError:
-        mode = "emulator" if __import__("os").environ.get("FIRESTORE_EMULATOR_HOST") else "adc"
-        emulator_host = __import__("os").environ.get("FIRESTORE_EMULATOR_HOST", "not set")
         raise RuntimeError(
-            f"Lifespan startup probe TIMED OUT after 10s — Firestore unreachable.\n"
-            f"  Mode            : {mode}\n"
-            f"  Emulator Host   : {emulator_host}\n\n"
-            "If using emulator mode, ensure the emulator is running first:\n"
-            "  firebase emulators:start --only firestore\n"
+            "Lifespan startup probe TIMED OUT after 30s — Firestore unreachable.\n"
+            "Ensure you have internet access and ADC credentials are valid."
         )
     except Exception as exc:
         err_type = type(exc).__name__
@@ -72,7 +67,7 @@ async def lifespan(app: FastAPI):
         if "unavailable" in err_msg or "connection" in err_msg:
             raise RuntimeError(
                 f"Lifespan startup probe FAILED — Firestore unreachable: {exc}\n"
-                "Ensure the Firestore emulator is running or ADC credentials are valid."
+                "Ensure ADC credentials are valid and you are connected to the internet."
             ) from exc
         # Non-fatal: collection not found or empty — emulator is reachable.
         _log.info(f"[Lifespan] Firestore liveness probe PASSED (non-fatal: {err_type}: {exc}).")

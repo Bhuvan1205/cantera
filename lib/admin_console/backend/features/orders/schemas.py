@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Optional
+from datetime import datetime
 
 
 # ── Sub-schemas ───────────────────────────────────────────────────────────────
@@ -19,18 +20,18 @@ class TokenDocument(BaseModel):
     """
     token_id: str
     counter: str
-    token_status: str                       # placed | preparing | delivered
+    token_status: str                       # placed | preparing | ready_for_pickup | delivered | discarded
     token_number: int
     qr_valid: bool
     qr_code_data: str
-    otp: Optional[str] = None              # Only for mess tokens
-    otp_verified: Optional[bool] = None    # Only for mess tokens
     queue_name: Optional[str] = None
     queue_position: Optional[int] = None
     prep_units_in_queue: Optional[float] = None
     prep_start_time: Optional[str] = None
     prep_end_time: Optional[str] = None
     prep_duration_mins: Optional[float] = None
+    prepared_at: Optional[str] = None
+    collection_deadline: Optional[str] = None
 
     @classmethod
     def from_firestore(cls, doc_id: str, data: dict) -> "TokenDocument":
@@ -44,14 +45,14 @@ class TokenDocument(BaseModel):
             token_number=int(data.get("token_number", 0)),
             qr_valid=data.get("qr_valid", False),
             qr_code_data=data.get("qr_code_data", ""),
-            otp=data.get("otp"),
-            otp_verified=data.get("otp_verified"),
             queue_name=data.get("queue_name"),
             queue_position=data.get("queue_position"),
             prep_units_in_queue=data.get("prep_units_in_queue"),
             prep_start_time=_ts(data.get("prep_start_time")),
             prep_end_time=_ts(data.get("prep_end_time")),
             prep_duration_mins=data.get("prep_duration_mins"),
+            prepared_at=_ts(data.get("prepared_at")),
+            collection_deadline=_ts(data.get("collection_deadline")),
         )
 
 
@@ -65,11 +66,17 @@ class OrderSummary(BaseModel):
     user_name: Optional[str] = None
     items: list[OrderItem] = []
     total: int
-    status: str                          # placed | preparing | delivered | refund_pending
-    overall_status: str                  # active | completed
+    status: str                          # placed | preparing | ready_for_pickup | delivered | refund_pending | discarded | cancelled
+    overall_status: str                  # active | completed | cancelled
     token_number: int
     payment_method: Optional[str] = None
     timestamp: Optional[str] = None
+    prepare_requested_at: Optional[datetime] = None
+    prepare_confirmation_deadline: Optional[datetime] = None
+    preparation_confirmed_at: Optional[datetime] = None
+    preparation_request_cancelled: Optional[bool] = None
+    prepared_at: Optional[datetime] = None
+    collection_deadline: Optional[datetime] = None
 
     @classmethod
     def from_firestore(cls, doc_id: str, data: dict) -> "OrderSummary":
@@ -95,6 +102,12 @@ class OrderSummary(BaseModel):
             token_number=int(data.get("tokenNumber", 0)),
             payment_method=data.get("paymentMethod"),
             timestamp=str(data.get("timestamp")) if data.get("timestamp") else None,
+            prepare_requested_at=data.get("prepare_requested_at"),
+            prepare_confirmation_deadline=data.get("prepare_confirmation_deadline"),
+            preparation_confirmed_at=data.get("preparation_confirmed_at"),
+            preparation_request_cancelled=data.get("preparation_request_cancelled"),
+            prepared_at=data.get("prepared_at"),
+            collection_deadline=data.get("collection_deadline"),
         )
 
 
@@ -143,6 +156,32 @@ class UpdateOrderStatusRequest(BaseModel):
     )
 
 
+# Valid Smart Preparation categories
+SMART_PREP_CATEGORIES = {"mess", "continental"}
+
+
+class StartPreparationRequest(BaseModel):
+    """
+    Payload for POST /api/orders/{order_id}/start-preparation.
+    Specifies which Smart Preparation token/category to transition: placed → preparing.
+    """
+    category: str = Field(
+        "mess",
+        description="Smart Prep category: mess | continental",
+    )
+
+
+class MarkPreparedRequest(BaseModel):
+    """
+    Payload for POST /api/orders/{order_id}/mark-prepared.
+    Specifies which Smart Preparation token/category to transition: preparing → ready_for_pickup.
+    """
+    category: str = Field(
+        "mess",
+        description="Smart Prep category: mess | continental",
+    )
+
+
 class CheckoutCartItem(BaseModel):
     """Item submitted for checkout orchestration."""
     menu_item_id: str = Field(..., description="Firestore Menu document ID")
@@ -165,7 +204,6 @@ class CheckoutTokenDetail(BaseModel):
     counter: str
     token_number: int
     qr_valid: bool
-    otp: Optional[str] = None
 
 
 class CheckoutResponse(BaseModel):

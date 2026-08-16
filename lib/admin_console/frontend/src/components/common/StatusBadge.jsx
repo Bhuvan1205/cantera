@@ -17,6 +17,14 @@ export default function StatusBadge({ status, size = 'sm' }) {
       colorClasses = 'bg-secondary-container text-on-secondary-container';
       label = 'Preparing';
       break;
+    case 'ready_for_pickup':
+      colorClasses = 'bg-tertiary-fixed text-on-tertiary-fixed';
+      label = 'Ready for Pickup';
+      break;
+    case 'active':
+      colorClasses = 'bg-primary-container text-on-primary-container';
+      label = 'Active';
+      break;
     case 'delivered':
     case 'completed':
       colorClasses = 'bg-tertiary-container text-on-tertiary-container';

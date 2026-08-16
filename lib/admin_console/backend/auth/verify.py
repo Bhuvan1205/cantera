@@ -57,9 +57,8 @@ def should_check_revocation(is_sensitive: bool = False) -> bool:
           - Security-sensitive only:   check_revoked = True  (Stateful)
     """
     env = os.getenv("ENV", "dev").lower()
-    is_emulator = bool(os.getenv("FIRESTORE_EMULATOR_HOST") or os.getenv("FIREBASE_AUTH_EMULATOR_HOST"))
 
-    if is_emulator or env in ("dev", "development", "local", "staging"):
+    if env in ("dev", "development", "local", "staging"):
         return False
 
     if env in ("prod", "production"):
