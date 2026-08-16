@@ -299,6 +299,50 @@ exports.expireReadyOrders = onSchedule("* * * * *", async (event) => {
 });
 
 /**
+ * Scheduled job to aggregate the latest 30 orders into Canteen Buzz recommendations.
+ * Runs every 10 minutes.
+ */
+exports.updateCanteenBuzz = onSchedule("*/10 * * * *", async (event) => {
+  console.log("Starting Canteen Buzz aggregation...");
+  const db = admin.firestore();
+
+  try {
+    const ordersSnap = await db.collection("Orders")
+      .orderBy("timestamp", "desc")
+      .limit(30)
+      .get();
+
+    const frequencies = {};
+
+    ordersSnap.forEach((doc) => {
+      const data = doc.data();
+      const items = data.items || [];
+      items.forEach((item) => {
+        if (item.name) {
+          const name = item.name.toLowerCase().trim();
+          const qty = parseInt(item.quantity, 10) || 1;
+          frequencies[name] = (frequencies[name] || 0) + qty;
+        }
+      });
+    });
+
+    const sortedItems = Object.entries(frequencies)
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 5)
+      .map(([name, count]) => ({ name, count }));
+
+    await db.collection("Recommendations").doc("CanteenBuzz").set({
+      topItems: sortedItems,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    console.log("Successfully updated CanteenBuzz with Top 5 items.");
+  } catch (err) {
+    console.error("Error updating Canteen Buzz:", err);
+  }
+});
+
+/**
  * Triggers push notifications for token-level status changes (like discarded).
  */
 exports.onTokenStatusChanged = onDocumentWritten("Orders/{orderId}/tokens/{tokenId}", async (event) => {

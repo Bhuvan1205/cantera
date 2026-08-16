@@ -63,6 +63,10 @@ service cloud.firestore {
     match /Users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
       allow write: if false;  // ADR-001: all writes via FastAPI backend
+
+      match /fcm_tokens/{tokenId} {
+        allow read, write: if false;  // Backend & Cloud Functions only
+      }
     }
 
     // ── Menu ──────────────────────────────────────────────────────────────────
@@ -138,6 +142,14 @@ service cloud.firestore {
         resource.data.user_uid == request.auth.uid || isAdmin()
       );
       allow write: if false;  // ADR-001: all writes via FastAPI backend
+    }
+
+    // ── Recommendations ───────────────────────────────────────────────────────
+    // Reads:  any authenticated user (required for Canteen Buzz UI)
+    // Writes: BACKEND ONLY (Cloud Functions)
+    match /Recommendations/CanteenBuzz {
+      allow read: if signedIn();
+      allow write: if false;  // Backend Admin SDK only
     }
 
     // ── Catch-all: deny everything else ──────────────────────────────────────

@@ -183,7 +183,6 @@ class _MenuPageState extends State<MenuPage> {
 
       setState(() => _isPlacingOrder = true);
 
-      final messenger = ScaffoldMessenger.of(cartContext);
       final navigator = Navigator.of(cartContext);
       final userId = FirebaseAuth.instance.currentUser!.uid;
 
@@ -207,16 +206,18 @@ class _MenuPageState extends State<MenuPage> {
       traceStack = stack;
 
       if (mounted) setState(() => _isPlacingOrder = false);
+      if (!cartContext.mounted) return;
 
-      final messenger = ScaffoldMessenger.of(cartContext);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Order failed: ${e.toString().replaceFirst('Exception: ', '')}'),
-          backgroundColor: AppColors.error,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
+      if (cartContext.mounted) {
+        ScaffoldMessenger.of(cartContext).showSnackBar(
+          SnackBar(
+            content: Text('Order failed: ${e.toString().replaceFirst('Exception: ', '')}'),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
     } finally {
       debugPrint(
         'STEP 1\n'
@@ -357,6 +358,7 @@ class _MenuPageState extends State<MenuPage> {
       'curry':                       'Menu item pictures/Mess/Mess/Curry.jpg',
       'sweet':                       'Menu item pictures/Mess/Mess/Sweet.jpg',
       'parota with kurma':           'Menu item pictures/Mess/Mess/Parota with kurma.jpg',
+      'canteen special (exclusive biryani)': 'Menu item pictures/Mess/Mess/veg-dum-biryani.webp',
       // ── Mess — Noodles & Rice ───────────────────────────────────────────────
       'veg noodles':                 'Menu item pictures/Mess/Mess/veg noodles.png',
       'veg manchuria':               'Menu item pictures/Mess/Mess/veg manchurain.png',
@@ -420,6 +422,18 @@ class _MenuPageState extends State<MenuPage> {
       builder: (context, snapshot) {
         final isLoading =
             snapshot.connectionState == ConnectionState.waiting;
+            
+        if (snapshot.hasError) {
+          if (kDebugMode) {
+            debugPrint('\n=== FIRESTORE ERROR ===');
+            debugPrint('Collection Name: Menu');
+            debugPrint('Operation: Stream (GET)');
+            debugPrint('User UID: ${FirebaseAuth.instance.currentUser?.uid ?? 'NULL'}');
+            debugPrint('Exception: ${snapshot.error}');
+            debugPrint('=======================\n');
+          }
+        }
+
         final items = (snapshot.hasData && snapshot.data!.docs.isNotEmpty)
             ? _toMenuItems(snapshot.data!.docs)
             : <MenuItem>[];
@@ -506,6 +520,14 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
             snapshot.connectionState == ConnectionState.waiting;
 
         if (snapshot.hasError) {
+          if (kDebugMode) {
+            debugPrint('\n=== FIRESTORE ERROR ===');
+            debugPrint('Collection Name: Orders');
+            debugPrint('Operation: GET');
+            debugPrint('User UID: ${FirebaseAuth.instance.currentUser?.uid ?? 'NULL'}');
+            debugPrint('Exception: ${snapshot.error}');
+            debugPrint('=======================\n');
+          }
           return Scaffold(
             backgroundColor: AppColors.bg,
             body: Center(child: Text('Error: ${snapshot.error}')),
@@ -552,6 +574,18 @@ class OrderDetailPage extends StatelessWidget {
               child: CircularProgressIndicator(color: AppColors.primary),
             ),
           );
+        }
+
+        if (snapshot.hasError) {
+          if (kDebugMode) {
+            debugPrint('\n=== FIRESTORE ERROR ===');
+            debugPrint('Collection Name: Orders');
+            debugPrint('Document Path: Orders/$orderId');
+            debugPrint('Operation: Stream (GET)');
+            debugPrint('User UID: ${FirebaseAuth.instance.currentUser?.uid ?? 'NULL'}');
+            debugPrint('Exception: ${snapshot.error}');
+            debugPrint('=======================\n');
+          }
         }
 
         if (!snapshot.hasData || !snapshot.data!.exists) {

@@ -54,5 +54,13 @@ class AppConfig {
   static bool get isProduction => env == 'prod';
   static bool get isStaging => env == 'staging';
   static bool get isDev => env == 'dev';
+
+  /// The physical sections available in the canteen.
+  static const List<String> canteenSections = [
+    'Bakery',
+    'Mess',
+    'Continental',
+    'Beverages',
+  ];
 }
 

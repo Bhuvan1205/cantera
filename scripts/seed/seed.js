@@ -18,14 +18,16 @@ const __dirname = path.dirname(__filename);
 
 const PROJECT_ID = "canteen-app-e1c8d";
 const COLLECTION = "Menu";
-
-const BASE_URL = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
+const BASE_URL = process.env.FIRESTORE_EMULATOR_HOST
+  ? `http://${process.env.FIRESTORE_EMULATOR_HOST}/v1/projects/${PROJECT_ID}/databases/(default)/documents`
+  : `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 
 const FIREBASE_CLIENT_ID = "563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com";
 const FIREBASE_CLIENT_SECRET = "j9iVZfS8kkCEFUPaAeJV0sAi";
 const REFRESH_TOKEN = "1//0gEmjm_w5hDcBCgYIARAAGBASNwF-L9Irh-1sCEc6ZEJ47CL0rVeQpzBeJA1N3qHWiw6XqjY-21t1c_hKL5gwjPHvHRltdXk3zSA";
 
 async function getAccessToken() {
+  if (process.env.FIRESTORE_EMULATOR_HOST) return "";
   const client = new UserRefreshClient(FIREBASE_CLIENT_ID, FIREBASE_CLIENT_SECRET, REFRESH_TOKEN);
   const { credentials } = await client.refreshAccessToken();
   return credentials.access_token;
@@ -129,13 +131,18 @@ async function main() {
       subCategory: subCat,
       stock: 50,
       isAvailable: true,
-      hasPrep: cat === "mess", // CSV only has Bakery, Beverages, Mess
+      hasPrep: cat === "mess",
       imageUrl: "",
     };
   });
 
   console.log("\nStep 2 ▸ Listing existing documents…");
-  const existingNames = await listDocumentNames(token);
+  let existingNames = [];
+  try {
+    existingNames = await listDocumentNames(token);
+  } catch (e) {
+    console.log("   ⚠️ Could not list existing documents, skipping delete.");
+  }
   console.log(`   Found ${existingNames.length} existing document(s).`);
 
   if (existingNames.length > 0) {

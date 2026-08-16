@@ -18,6 +18,11 @@ import RefundRequests from './pages/Wallet/RefundRequests';
 import RefundDetails from './pages/Wallet/RefundDetails';
 import WalletInvestigation from './pages/Wallet/WalletInvestigation';
 
+// FoodPulse Pages
+import FoodPulseDashboard from './pages/FoodPulse/FoodPulseDashboard';
+import SuggestionList from './pages/FoodPulse/SuggestionList';
+import PollManagement from './pages/FoodPulse/PollManagement';
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -54,6 +59,11 @@ export default function App() {
             <Route path="wallet/refunds" element={<RefundRequests />} />
             <Route path="wallet/refunds/:id" element={<RefundDetails />} />
             <Route path="wallet/investigation" element={<WalletInvestigation />} />
+
+            {/* FoodPulse – Student Demand & Community Feedback */}
+            <Route path="foodpulse" element={<FoodPulseDashboard />} />
+            <Route path="foodpulse/suggestions" element={<SuggestionList />} />
+            <Route path="foodpulse/polls" element={<PollManagement />} />
           </Route>
 
           {/* Catch-all fallback redirect */}

@@ -291,29 +291,6 @@ class OrderHistoryCard extends StatelessWidget {
   }
 }
 
-class _ReorderLabel extends StatelessWidget {
-  const _ReorderLabel({required this.label});
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const Icon(Icons.refresh_rounded, size: 16, color: AppColors.accent),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: AppColors.accent,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _OrderThumbnail extends StatelessWidget {
   const _OrderThumbnail({this.imageUrl});
   final String? imageUrl;

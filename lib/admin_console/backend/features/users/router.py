@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 
 from auth.dependencies import get_current_admin, get_current_user
 from config.logging import log_audit
-from .schemas import UserProfile, UserDetail, CreateUserProfileRequest, ChangePinRequest, PickupPinInfo
+from .schemas import UserProfile, UserDetail, CreateUserProfileRequest, RegisterFcmTokenRequest
 from .service import UserService
 
 router = APIRouter()
@@ -29,35 +29,7 @@ def create_or_update_profile(
     return res
 
 
-@router.get(
-    "/me/pin",
-    response_model=PickupPinInfo,
-    summary="Get user pickup PIN info",
-    description="Returns whether the caller has a pickup PIN and remaining cooldown days.",
-)
-def get_my_pin_info(
-    user: dict = Depends(get_current_user),
-) -> PickupPinInfo:
-    return UserService.get_my_pin_info(user["uid"])
 
-
-@router.post(
-    "/change-pin",
-    summary="Change user pickup delivery PIN",
-    description="Validates 4-digit PIN format and 30-day cooldown period server-side.",
-)
-def change_pickup_pin(
-    payload: ChangePinRequest,
-    user: dict = Depends(get_current_user),
-) -> dict:
-    res = UserService.change_pickup_pin(user["uid"], payload.new_pin)
-    log_audit(
-        action="USER_PIN_CHANGED",
-        actor_uid=user["uid"],
-        target=f"Users/{user['uid']}",
-        details={"status": "updated"},
-    )
-    return res
 
 
 @router.get(
@@ -91,3 +63,30 @@ def get_user(
 ) -> UserDetail:
     return UserService.get_user(uid)
 
+
+@router.post("/fcm-token", summary="Register FCM Token")
+def register_fcm_token(
+    payload: RegisterFcmTokenRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Registers a device FCM token for push notifications.
+    The uid is derived securely from the auth token, so users cannot register tokens
+    for other accounts.
+    """
+    uid = current_user["uid"]
+    UserService.register_fcm_token(uid, payload.token)
+    return {"status": "success", "message": "FCM token registered successfully."}
+
+@router.delete("/fcm-token", summary="Delete FCM Token")
+def delete_fcm_token(
+    payload: RegisterFcmTokenRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Deletes a device FCM token before logout to prevent cross-user leakage.
+    The uid is derived securely from the auth token.
+    """
+    uid = current_user["uid"]
+    UserService.delete_fcm_token(uid, payload.token)
+    return {"status": "success", "message": "FCM token deleted successfully."}

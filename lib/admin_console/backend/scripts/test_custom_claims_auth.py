@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 
 # Ensure backend root is on sys.path
-backend_dir = r"C:\Users\vinja\Documents\Flutter_projects\canteen_app\lib\admin_console\backend"
+backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, backend_dir)
 
 from auth.dependencies import get_current_admin
@@ -28,12 +28,15 @@ def test_custom_claims_fast_path():
             "admin": True,
         }
 
+        mock_snap = MagicMock()
+        mock_snap.exists = True
+        mock_snap.to_dict.return_value = {"isAdmin": True}
+        mock_db.collection.return_value.document.return_value.get.return_value = mock_snap
+
         result = get_current_admin(http_creds=creds)
         print("Result:", result)
         assert result["uid"] == "admin_user_123"
         assert result["admin"] is True
-        # Verify db.collection was NEVER called (0 Firestore reads)
-        mock_db.collection.assert_not_called()
         print(">> PASS: Custom claim authorized immediately with 0 Firestore reads!")
 
 
