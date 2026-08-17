@@ -8,7 +8,6 @@ import '../tabs/staff_inventory_tab.dart';
 import '../tabs/staff_orders_tab.dart';
 import '../tabs/staff_queue_tab.dart';
 import '../tabs/staff_settings_tab.dart';
-import '../tabs/staff_wallet_tab.dart';
 import '../widgets/staff_bottom_nav.dart';
 
 /// The core host and shell for the Canteen Staff Terminal.
@@ -199,7 +198,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           StaffOrdersTab(onOpenScanner: _openScanner),
           const StaffInventoryTab(),
           const StaffQueueTab(),
-          const StaffWalletTab(),
           StaffSettingsTab(
             newOrderAlerts: _newOrderAlerts,
             stockWarnings: _stockWarnings,

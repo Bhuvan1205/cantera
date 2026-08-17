@@ -60,15 +60,9 @@ class StaffBottomNav extends StatelessWidget {
             ),
             // Quick Action: Scan
             _buildScanAction(),
-            // Tab 3: Wallet
+            // Tab 3: Settings
             _buildTab(
               index: 3,
-              icon: Icons.account_balance_wallet_rounded,
-              label: 'WALLET',
-            ),
-            // Tab 4: Settings
-            _buildTab(
-              index: 4,
               icon: Icons.settings_rounded,
               label: 'SETTINGS',
             ),

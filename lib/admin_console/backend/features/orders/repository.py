@@ -423,7 +423,7 @@ class OrderRepository:
                 menu_docs = list(db.collection(_MENU_COL).where("name", "==", item_name).limit(1).stream())
                 if menu_docs:
                     m_ref = menu_docs[0].reference
-                    m_ref.update({"stock": firestore.Increment(qty)})
+                    m_ref.update({"stock": firestore.Increment(qty), "isAvailable": True})
 
         # 2. Refund wallet if paid via wallet
         payment_method = str(order_data.get("payment_method", "")).lower()

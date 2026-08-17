@@ -271,7 +271,7 @@ class GroupOrderService:
                 transaction.delete(lock_ref)
                 
         leave_tx(tx)
-        return True
+        return ref.get().to_dict()
 
     @staticmethod
     def cancel(caller: dict, group_id: str):
@@ -295,7 +295,7 @@ class GroupOrderService:
                 transaction.delete(lock_ref)
                     
         cancel_tx(tx)
-        return True
+        return ref.get().to_dict()
 
     @staticmethod
     def mutate_items(caller: dict, payload):
