@@ -11,8 +11,14 @@ client = TestClient(app, raise_server_exceptions=False)
 def override_customer():
     return {"uid": "test-user-123", "email": "test@example.com", "role": "customer"}
 
-app.dependency_overrides[get_current_user] = override_customer
 
+
+
+@pytest.fixture(autouse=True)
+def apply_overrides():
+    app.dependency_overrides[get_current_user] = override_customer
+    yield
+    app.dependency_overrides.clear()
 
 def test_deposit_order_min_amount_validation():
     # Amount below minimum INR 20 -> 422

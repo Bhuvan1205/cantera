@@ -12,8 +12,14 @@ client = TestClient(app, raise_server_exceptions=False)
 def override_user():
     return {"uid": "user_test_pin_123", "email": "student@mvsrec.edu.in"}
 
-app.dependency_overrides[get_current_user] = override_user
 
+
+
+@pytest.fixture(autouse=True)
+def apply_overrides():
+    app.dependency_overrides[get_current_user] = override_user
+    yield
+    app.dependency_overrides.clear()
 
 def test_user_profile_creation_success():
     with patch("features.users.service.UserService.create_or_update_profile") as mock_create:

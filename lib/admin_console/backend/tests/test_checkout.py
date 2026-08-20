@@ -17,8 +17,14 @@ client = TestClient(app, raise_server_exceptions=False)
 def override_customer():
     return {"uid": "test-user-456", "email": "customer@example.com", "role": "customer"}
 
-app.dependency_overrides[get_current_user] = override_customer
 
+
+
+@pytest.fixture(autouse=True)
+def apply_overrides():
+    app.dependency_overrides[get_current_user] = override_customer
+    yield
+    app.dependency_overrides.clear()
 
 def test_checkout_empty_cart_fails():
     response = client.post("/api/orders/checkout", json={"items": [], "payment_method": "wallet"})

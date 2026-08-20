@@ -15,8 +15,14 @@ def override_staff():
 def override_customer():
     return {"uid": "customer-user-123", "email": "customer@example.com", "role": "customer"}
 
-app.dependency_overrides[get_current_user] = override_staff
 
+
+
+@pytest.fixture(autouse=True)
+def apply_overrides():
+    app.dependency_overrides[get_current_user] = override_staff
+    yield
+    app.dependency_overrides.clear()
 
 def test_scan_qr_empty_fails_422():
     response = client.post("/api/orders/scan-qr", json={"qr_payload": ""})

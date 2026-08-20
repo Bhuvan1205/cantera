@@ -15,9 +15,15 @@ def override_user():
 def override_admin():
     return {"uid": "admin_user_1", "email": "admin@example.com", "isAdmin": True}
 
-app.dependency_overrides[get_current_user] = override_user
-app.dependency_overrides[get_current_admin] = override_admin
 
+
+
+@pytest.fixture(autouse=True)
+def apply_overrides():
+    app.dependency_overrides[get_current_user] = override_user
+    app.dependency_overrides[get_current_admin] = override_admin
+    yield
+    app.dependency_overrides.clear()
 
 def test_user_refund_request_order_not_found():
     with patch("features.wallet.repository.WalletRepository.create_refund_request") as mock_req:
