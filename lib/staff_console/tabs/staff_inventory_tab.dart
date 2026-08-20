@@ -82,11 +82,11 @@ class StaffInventoryTab extends StatelessWidget {
         }).length;
 
         return ListView(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 110), // Padding to clear bottom nav
+          padding: EdgeInsets.fromLTRB(18, 16, 18, MediaQuery.of(context).padding.bottom + 88),
           children: [
             // Top Section Indicator
             const Text(
-              'MANAGEMENT HUB',
+              'INVENTORY',
               style: TextStyle(
                 fontSize: 11,
                 letterSpacing: 1.5,

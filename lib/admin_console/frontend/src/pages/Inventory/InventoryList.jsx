@@ -341,9 +341,6 @@ export default function InventoryList() {
                                 {item.description}
                               </div>
                             )}
-                            <div className="font-data-mono text-[10px] text-outline">
-                              ID: {menuId}
-                            </div>
                           </div>
                         </div>
                       </td>
@@ -476,12 +473,6 @@ export default function InventoryList() {
                   {viewModalItem.stock !== null && viewModalItem.stock !== undefined
                     ? `${viewModalItem.stock} units`
                     : 'Unlimited'}
-                </span>
-              </div>
-              <div>
-                <span className="text-on-surface-variant">Menu ID:</span>{' '}
-                <span className="font-data-mono text-outline">
-                  {viewModalItem.menu_id || viewModalItem.id}
                 </span>
               </div>
             </div>

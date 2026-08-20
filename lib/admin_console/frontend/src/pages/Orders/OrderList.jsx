@@ -133,9 +133,9 @@ export default function OrderList() {
             <table className="w-full text-left font-body-md border-collapse">
               <thead>
                 <tr className="bg-surface-container-low text-on-surface-variant font-label-caps text-label-caps uppercase tracking-wider border-b border-outline-variant/20">
-                  <th className="p-table-cell-padding">Order ID</th>
+                  <th className="p-table-cell-padding">Order Ref</th>
                   <th className="p-table-cell-padding">Placed At</th>
-                  <th className="p-table-cell-padding">Customer / UID</th>
+                  <th className="p-table-cell-padding">Customer</th>
                   <th className="p-table-cell-padding">Items</th>
                   <th className="p-table-cell-padding text-right">Total</th>
                   <th className="p-table-cell-padding">Status</th>
@@ -150,6 +150,9 @@ export default function OrderList() {
                   const itemsCount = ord.items?.length || 0;
                   const timestamp = ord.created_at || ord.timestamp;
                   const status = ord.status || 'placed';
+                  const tokenNum = ord.token_number || ord.tokenNumber || ord.token;
+                  const orderRef = tokenNum ? `Token #${tokenNum}` : `#${orderId.slice(0, 6).toUpperCase()}`;
+                  const customerName = ord.user_name || ord.user_email || ord.email || (uid && uid !== 'admin_placed' ? 'Customer' : 'Walk-in Customer');
 
                   return (
                     <tr
@@ -157,7 +160,7 @@ export default function OrderList() {
                       className="hover:bg-surface-container-low/50 transition-colors group"
                     >
                       <td className="p-table-cell-padding font-data-mono font-bold text-primary">
-                        {orderId}
+                        {orderRef}
                       </td>
 
                       <td className="p-table-cell-padding font-body-sm text-on-surface-variant whitespace-nowrap">
@@ -165,29 +168,16 @@ export default function OrderList() {
                       </td>
 
                       <td className="p-table-cell-padding text-body-sm">
-                        {ord.user_name ? (
-                          <div>
-                            <div className="font-semibold text-on-surface">{ord.user_name}</div>
-                            {uid && uid !== 'admin_placed' ? (
-                              <Link
-                                to={`/users/${encodeURIComponent(uid)}`}
-                                className="font-data-mono text-outline hover:text-primary hover:underline block truncate max-w-[130px] text-[11px]"
-                                title={uid}
-                              >
-                                {uid}
-                              </Link>
-                            ) : null}
-                          </div>
-                        ) : uid ? (
+                        {uid && uid !== 'admin_placed' ? (
                           <Link
                             to={`/users/${encodeURIComponent(uid)}`}
-                            className="font-data-mono text-outline hover:text-primary hover:underline block truncate max-w-[130px]"
-                            title={uid}
+                            className="font-semibold text-on-surface hover:text-primary hover:underline block truncate max-w-[180px]"
+                            title={customerName}
                           >
-                            {uid}
+                            {customerName}
                           </Link>
                         ) : (
-                          <span className="italic text-on-surface-variant">Walk-in Customer</span>
+                          <span className="font-medium text-on-surface-variant">{customerName}</span>
                         )}
                       </td>
 

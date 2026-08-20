@@ -156,6 +156,8 @@ class OrderRepository:
         display_items: dict[str, list[dict]] = {}
         total = 0
 
+        _SMART_PREP_CATS = {"mess", "continental"}
+
         for item in payload.items:
             cat = item.category.lower().strip()
             qty = item.quantity
@@ -174,7 +176,7 @@ class OrderRepository:
                 "item_name": name,
                 "quantity": qty,
                 "unit_price": price,
-                "prep_units": _calc_prep_units(qty) if cat == "mess" else 0.0,
+                "prep_units": _calc_prep_units(qty) if cat in _SMART_PREP_CATS else 0.0,
             })
 
             display_items.setdefault(cat, []).append({
@@ -192,12 +194,14 @@ class OrderRepository:
         category_tokens_map = {}
         token_data_list = []
 
+        _SMART_PREP_CATS = {"mess", "continental"}
+
         for i, cat in enumerate(sorted_categories):
             cat_token_num = (base_token + i) % 100000
             items_for_cat = token_items[cat]
-            is_mess = cat == "mess"
+            is_smart_prep = cat in _SMART_PREP_CATS
 
-            token_ref = order_ref.collection("tokens").document()
+            token_ref = order_ref.collection("tokens").document(cat)
             token_id = token_ref.id
             qr_code_data = f"{order_id}::{token_id}"
 
@@ -212,8 +216,8 @@ class OrderRepository:
             queue_position = None
             prep_units_in_queue = None
 
-            if is_mess:
-                queue_name = items_for_cat[0]["item_name"]
+            if is_smart_prep:
+                queue_name = cat
                 prep_units_in_queue = sum(item["prep_units"] for item in items_for_cat)
 
                 # Get queue length
@@ -237,7 +241,7 @@ class OrderRepository:
                 "prep_duration_mins": None,
             }
 
-            token_data_list.append((token_ref, token_doc_data, is_mess, queue_name, prep_units_in_queue, cat_token_num, token_id))
+            token_data_list.append((token_ref, token_doc_data, is_smart_prep, queue_name, prep_units_in_queue, cat_token_num, token_id, items_for_cat))
 
         # ── 1. Create parent order document ──────────────────────────────────
         order_ref.set({
@@ -256,11 +260,12 @@ class OrderRepository:
 
         # ── 2. Create token sub-documents & update queues ─────────────────────
         tokens_created: list[TokenDocument] = []
-        for token_ref, write_map, is_mess, queue_name, prep_units_in_queue, cat_token_num, token_id in token_data_list:
+        for token_ref, write_map, is_smart_prep, queue_name, prep_units_in_queue, cat_token_num, token_id, items_for_cat in token_data_list:
+            print(f"DEBUG: cat={token_ref.id} is_smart_prep={is_smart_prep} queue_name={queue_name} prep_units={prep_units_in_queue}")
             token_ref.set(write_map)
             tokens_created.append(TokenDocument.from_firestore(token_ref.id, write_map))
 
-            if is_mess and queue_name and prep_units_in_queue:
+            if is_smart_prep and queue_name and prep_units_in_queue:
                 queue_ref = db.collection(_QUEUES_COL).document(queue_name)
                 queue_ref.set({
                     "item_name": queue_name,
@@ -271,6 +276,7 @@ class OrderRepository:
                         "prep_units": prep_units_in_queue,
                         "token_number": cat_token_num,
                         "status": "waiting",
+                        "items": items_for_cat,
                     }]),
                     "total_prep_units_ahead": firestore.Increment(prep_units_in_queue),
                 }, merge=True)
@@ -530,7 +536,7 @@ class OrderRepository:
                 "Cannot start preparation."
             )
 
-        queue_name = items_for_cat[0].get("item_name") or items_for_cat[0].get("name")
+        queue_name = category
         prep_units_in_queue = sum(float(item.get("prep_units", 0)) for item in items_for_cat)
         cat_token_num = int(token_data.get("token_number", 0))
         token_id = token_snap.id  # == category
@@ -580,6 +586,7 @@ class OrderRepository:
                     "prep_units": prep_units_in_queue,
                     "token_number": cat_token_num,
                     "status": "preparing",
+                    "items": items_for_cat,
                 }]),
                 "total_prep_units_ahead": firestore.Increment(prep_units_in_queue),
             }, merge=True)
@@ -624,6 +631,8 @@ class OrderRepository:
         cat_token_num = int(token_data.get("token_number", 0))
         token_id = token_snap.id  # == category
 
+        items_for_cat = token_data.get("items", [])
+
         now_utc = datetime.now(timezone.utc)
 
         batch = db.batch()
@@ -657,9 +666,23 @@ class OrderRepository:
         # 3. Remove ONLY this token from its queue
         if queue_name and prep_units_in_queue:
             queue_ref = db.collection(_QUEUES_COL).document(queue_name)
-            # Remove both 'preparing' and 'waiting' variants for compatibility with manual orders
+            # Remove variants with and without 'items' to ensure old queue documents can be cleared
             batch.update(queue_ref, {
                 "queue": firestore.ArrayRemove([{
+                    "token_id": token_id,
+                    "order_id": order_id,
+                    "prep_units": prep_units_in_queue,
+                    "token_number": cat_token_num,
+                    "status": "preparing",
+                    "items": items_for_cat,
+                }, {
+                    "token_id": token_id,
+                    "order_id": order_id,
+                    "prep_units": prep_units_in_queue,
+                    "token_number": cat_token_num,
+                    "status": "waiting",
+                    "items": items_for_cat,
+                }, {
                     "token_id": token_id,
                     "order_id": order_id,
                     "prep_units": prep_units_in_queue,

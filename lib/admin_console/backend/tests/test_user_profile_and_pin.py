@@ -10,7 +10,7 @@ from features.users.schemas import UserProfile
 client = TestClient(app, raise_server_exceptions=False)
 
 def override_user():
-    return {"uid": "user_test_pin_123", "email": "user@example.com"}
+    return {"uid": "user_test_pin_123", "email": "student@mvsrec.edu.in"}
 
 app.dependency_overrides[get_current_user] = override_user
 
@@ -20,13 +20,13 @@ def test_user_profile_creation_success():
         mock_create.return_value = UserProfile(
             uid="user_test_pin_123",
             name="John Doe",
-            email="user@example.com",
+            email="student@mvsrec.edu.in",
             phone="9876543210",
             is_admin=False,
         )
         payload = {
             "name": "John Doe",
-            "email": "user@example.com",
+            "email": "student@mvsrec.edu.in",
             "phone": "9876543210",
         }
         res = client.post("/api/users/profile", json=payload)
@@ -45,12 +45,12 @@ def test_profile_creation_is_idempotent():
     profile_result = UserProfile(
         uid="user_test_pin_123",
         name="John Doe",
-        email="user@example.com",
+        email="student@mvsrec.edu.in",
         is_admin=False,
     )
     payload = {
         "name": "John Doe",
-        "email": "user@example.com",
+        "email": "student@mvsrec.edu.in",
     }
 
     with patch("features.users.service.UserService.create_or_update_profile") as mock_create:
@@ -81,10 +81,10 @@ def test_profile_creation_does_not_duplicate_wallet():
     profile_result = UserProfile(
         uid="user_test_pin_123",
         name="John Doe",
-        email="user@example.com",
+        email="student@mvsrec.edu.in",
         is_admin=False,
     )
-    payload = {"name": "John Doe", "email": "user@example.com"}
+    payload = {"name": "John Doe", "email": "student@mvsrec.edu.in"}
 
     with patch("features.users.service.UserService.create_or_update_profile",
                return_value=profile_result) as mock_upsert:
@@ -106,10 +106,10 @@ def test_profile_recovery_after_simulated_failure():
     profile_result = UserProfile(
         uid="user_test_pin_123",
         name="John Doe",
-        email="user@example.com",
+        email="student@mvsrec.edu.in",
         is_admin=False,
     )
-    payload = {"name": "John Doe", "email": "user@example.com"}
+    payload = {"name": "John Doe", "email": "student@mvsrec.edu.in"}
 
     call_count = 0
 

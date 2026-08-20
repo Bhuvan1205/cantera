@@ -23,61 +23,53 @@ class _AdminMenuScreenState extends State<AdminMenuScreen> {
         elevation: 0,
         scrolledUnderElevation: 0,
         automaticallyImplyLeading: true,
-            title: const Text(
-              'Manage Menu',
-              style: TextStyle(
-                color: AppColors.primary,
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.5,
+        title: const Text('Manage Menu'),
+      ),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance.collection('Menu').snapshots(),
+        builder: (context, menuSnapshot) {
+          if (menuSnapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+          }
+
+          if (menuSnapshot.hasError) {
+            return Center(
+              child: Text(
+                'Error: ${menuSnapshot.error}',
+                style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.w600),
               ),
-            ),
-          ),
-          body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: FirebaseFirestore.instance.collection('Menu').snapshots(),
-            builder: (context, menuSnapshot) {
-              if (menuSnapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator(color: AppColors.primary));
-              }
+            );
+          }
 
-              if (menuSnapshot.hasError) {
-                return Center(
-                  child: Text(
-                    'Error: ${menuSnapshot.error}',
-                    style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.w600),
-                  ),
-                );
-              }
+          final docs = menuSnapshot.data?.docs ?? [];
+          if (docs.isEmpty) {
+            return const Center(
+              child: Text(
+                'No menu items found',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primary,
+                ),
+              ),
+            );
+          }
 
-              final docs = menuSnapshot.data?.docs ?? [];
-              if (docs.isEmpty) {
-                return const Center(
-                  child: Text(
-                    'No menu items found',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                );
-              }
-
-              return ListView.builder(
-                padding: const EdgeInsets.all(20),
-                itemCount: docs.length,
-                itemBuilder: (context, index) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: _AdminMenuItemCard(
-                      document: docs[index],
-                    ),
-                  );
-                },
+          return ListView.builder(
+            padding: const EdgeInsets.all(20),
+            itemCount: docs.length,
+            itemBuilder: (context, index) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: _AdminMenuItemCard(
+                  document: docs[index],
+                ),
               );
             },
-          ),
-        );
+          );
+        },
+      ),
+    );
   }
 }
 
@@ -313,18 +305,12 @@ class _EditableNumberField extends StatelessWidget {
       decoration: InputDecoration(
         labelText: label,
         labelStyle: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.textMuted),
-        filled: true,
-        fillColor: AppColors.bg,
         suffixIcon: suffix == null
             ? null
             : Padding(
                 padding: const EdgeInsets.all(12),
                 child: suffix,
               ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
       ),
     );
   }

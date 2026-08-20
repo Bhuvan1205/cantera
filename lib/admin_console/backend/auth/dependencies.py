@@ -23,6 +23,23 @@ def _trace_backend_step(step: str, exception: str = "None") -> None:
     )
 
 
+def _enforce_college_domain(decoded: dict) -> None:
+    if decoded.get("admin") is True or decoded.get("isAdmin") is True:
+        return
+
+    email = decoded.get("email")
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Email address is missing.",
+        )
+    parts = email.strip().lower().split('@')
+    if len(parts) != 2 or parts[1] != "mvsrec.edu.in":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Only @mvsrec.edu.in accounts are permitted.",
+        )
+
 def get_current_admin(
     http_creds: HTTPAuthorizationCredentials = Depends(_bearer),
 ) -> dict:
@@ -59,6 +76,8 @@ def get_current_admin(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token is missing the uid claim.",
         )
+
+    _enforce_college_domain(decoded)
 
     # ── Firestore availability check (fail-closed) ────────────────────────────
     # Authorization always requires a live Firestore connection.
@@ -131,6 +150,8 @@ def get_current_sensitive_admin(
             detail="Token is missing the uid claim.",
         )
 
+    _enforce_college_domain(decoded)
+
     if db is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -185,6 +206,8 @@ def get_current_user(
                 detail="Token is missing the uid claim.",
             )
 
+        _enforce_college_domain(decoded)
+
         return {"uid": uid, "email": decoded.get("email")}
     except Exception as exc:
         trace_exception = f"{type(exc).__name__}: {exc}"
@@ -211,6 +234,8 @@ def get_current_staff_or_admin(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token is missing the uid claim.",
         )
+
+    _enforce_college_domain(decoded)
 
     if db is None:
         raise HTTPException(

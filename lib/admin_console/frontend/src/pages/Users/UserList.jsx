@@ -73,7 +73,7 @@ export default function UserList() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, email, or UID..."
+            placeholder="Search by name, email, or phone..."
             className="w-full pl-[42px] pr-md py-xs bg-surface-container border border-outline-variant/30 rounded-xl font-body-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary focus:bg-surface-container-lowest transition-all"
           />
         </div>
@@ -103,7 +103,6 @@ export default function UserList() {
               <thead>
                 <tr className="bg-surface-container-low text-on-surface-variant font-label-caps text-label-caps uppercase tracking-wider border-b border-outline-variant/20">
                   <th className="p-table-cell-padding">User</th>
-                  <th className="p-table-cell-padding">UID</th>
                   <th className="p-table-cell-padding">Role</th>
                   <th className="p-table-cell-padding">Contact</th>
                   <th className="p-table-cell-padding text-right">Actions</th>
@@ -134,12 +133,6 @@ export default function UserList() {
                             </div>
                           </div>
                         </div>
-                      </td>
-
-                      <td className="p-table-cell-padding font-data-mono text-body-sm text-outline">
-                        <span className="truncate block max-w-[160px]" title={uid}>
-                          {uid}
-                        </span>
                       </td>
 
                       <td className="p-table-cell-padding">

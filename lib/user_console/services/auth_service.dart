@@ -7,6 +7,12 @@ import '../../core/services/fcm_service.dart';
 class AuthService {
   const AuthService._();
 
+  /// Defines the authorized testing/admin account that is permitted to bypass
+  /// the normal @mvsrec.edu.in domain restriction for login and password reset.
+  static bool isTestingAdminEmail(String email) {
+    return email.trim().toLowerCase() == 'vinjamuri.bhuvan@gmail.com';
+  }
+
   static Future<void> signOut() async {
     try {
       final token = await FirebaseMessaging.instance.getToken();

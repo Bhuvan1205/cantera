@@ -20,7 +20,7 @@ class StaffBottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+      margin: EdgeInsets.fromLTRB(16, 0, 16, MediaQuery.of(context).padding.bottom + 12),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: AppColors.cardBg,
@@ -43,7 +43,7 @@ class StaffBottomNav extends StatelessWidget {
             // Tab 0: Orders
             _buildTab(
               index: 0,
-              icon: Icons.restaurant_menu_rounded,
+              icon: Icons.receipt_long_rounded,
               label: 'ORDERS',
             ),
             // Tab 1: Inventory
@@ -80,12 +80,8 @@ class StaffBottomNav extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
-            color: Colors.transparent,
+            color: AppColors.primary.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: AppColors.primary.withValues(alpha: 0.12),
-              width: 1.5,
-            ),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,

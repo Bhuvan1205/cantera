@@ -19,6 +19,14 @@ def create_or_update_profile(
     payload: CreateUserProfileRequest,
     user: dict = Depends(get_current_user),
 ) -> UserProfile:
+    email = payload.email.strip().lower()
+    parts = email.split('@')
+    if len(parts) != 2 or parts[1] != "mvsrec.edu.in":
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only @mvsrec.edu.in accounts are permitted.",
+        )
     res = UserService.create_or_update_profile(user["uid"], payload)
     log_audit(
         action="USER_PROFILE_SYNCED",

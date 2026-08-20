@@ -82,70 +82,68 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               letterSpacing: -0.5,
             ),
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Customer: ${_titleCase(userName)}',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.primary,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                isQueued ? 'Items queued for preparation:' : 'Items to hand over:',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 12,
-                  color: AppColors.textMuted,
-                ),
-              ),
-              const SizedBox(height: 8),
-              ...items.map((item) => Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.check_circle_rounded, size: 18, color: AppColors.primary),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        item,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.primary,
-                        ),
-                      ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Customer: ${_titleCase(userName)}',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primary,
                     ),
-                  ],
-                ),
-              )),
-              const SizedBox(height: 10),
-              Text(
-                isQueued ? 'Status automatically updated to Preparing.' : 'Status automatically updated to Delivered.',
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: AppColors.textMuted,
-                  fontStyle: FontStyle.italic,
-                  fontWeight: FontWeight.w600,
-                ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    isQueued ? 'Items queued for preparation:' : 'Items to hand over:',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...items.map((item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.check_circle_rounded, size: 18, color: AppColors.primary),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            item,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )),
+                  const SizedBox(height: 10),
+                  Text(
+                    isQueued ? 'Status automatically updated to Preparing.' : 'Status automatically updated to Delivered.',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textMuted,
+                      fontStyle: FontStyle.italic,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
           actions: [
             ElevatedButton(
               onPressed: () => Navigator.of(ctx).pop(),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                elevation: 0,
-              ),
               child: const Text(
                 'Done',
                 style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
@@ -166,16 +164,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         elevation: 0,
         scrolledUnderElevation: 0,
         automaticallyImplyLeading: false,
-        centerTitle: true,
-        title: const Text(
-          'CANTEEN STAFF',
-          style: TextStyle(
-            color: AppColors.primary,
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 1.5,
-          ),
-        ),
+        title: const Text('Canteen Staff'),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12.0),

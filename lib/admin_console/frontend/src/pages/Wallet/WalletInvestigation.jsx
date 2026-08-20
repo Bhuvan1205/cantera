@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { getWalletInvestigation } from '../../api/wallet';
+import { getUser } from '../../api/users';
 import { getErrorMessage } from '../../api/client';
 import { Alert, LoadingSpinner, EmptyState } from '../../components/common/Feedback';
 import StatusBadge from '../../components/common/StatusBadge';
@@ -11,6 +12,7 @@ export default function WalletInvestigation() {
 
   const [inputUid, setInputUid] = useState(initialUid);
   const [investigationData, setInvestigationData] = useState(null);
+  const [investigatedUserDisplay, setInvestigatedUserDisplay] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -18,9 +20,22 @@ export default function WalletInvestigation() {
     if (!uidToFetch || !uidToFetch.trim()) return;
     setIsLoading(true);
     setError(null);
+    setInvestigatedUserDisplay(null);
     try {
       const data = await getWalletInvestigation(uidToFetch.trim());
       setInvestigationData(data);
+
+      // Attempt to resolve a human-readable identity for the investigated user.
+      // getUser may fail (e.g. user not in Users collection) — silently fall back.
+      try {
+        const userDetail = await getUser(uidToFetch.trim());
+        const name = userDetail?.profile?.name || userDetail?.name || null;
+        const email = userDetail?.profile?.email || userDetail?.email || null;
+        setInvestigatedUserDisplay(name || email || null);
+      } catch {
+        // Fall back: display the uid (truncated) if user profile lookup fails.
+        setInvestigatedUserDisplay(null);
+      }
     } catch (err) {
       setError(getErrorMessage(err, `Failed to fetch wallet audit for UID: ${uidToFetch}`));
       setInvestigationData(null);
@@ -112,8 +127,8 @@ export default function WalletInvestigation() {
               <div className="font-label-caps text-on-surface-variant uppercase text-[10px]">
                 Investigated User
               </div>
-              <div className="font-data-mono font-bold text-on-surface text-body-sm truncate mt-xs" title={investigationData.user_uid}>
-                {investigationData.user_uid}
+              <div className="font-semibold text-on-surface text-body-sm truncate mt-xs" title={investigationData.user_uid}>
+                {investigatedUserDisplay || `UID: ${investigationData.user_uid.slice(0, 12)}…`}
               </div>
               <Link
                 to={`/users/${encodeURIComponent(investigationData.user_uid)}`}
