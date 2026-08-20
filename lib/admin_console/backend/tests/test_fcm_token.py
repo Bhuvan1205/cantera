@@ -11,7 +11,11 @@ client = TestClient(app, raise_server_exceptions=False)
 def override_user():
     return {"uid": "test_fcm_uid_123", "email": "user@example.com"}
 
-app.dependency_overrides[get_current_user] = override_user
+@pytest.fixture(autouse=True)
+def apply_overrides():
+    app.dependency_overrides[get_current_user] = override_user
+    yield
+    app.dependency_overrides.clear()
 
 
 def test_fcm_token_registration_success():

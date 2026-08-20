@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from fastapi import HTTPException
 
 from main import app
-from auth.dependencies import get_current_user
+from auth.dependencies import get_current_user, get_current_staff_or_admin
 from features.orders.schemas import ScanQrResponse, VerifyOtpResponse
 
 client = TestClient(app, raise_server_exceptions=False)
@@ -15,12 +15,10 @@ def override_staff():
 def override_customer():
     return {"uid": "customer-user-123", "email": "customer@example.com", "role": "customer"}
 
-
-
-
 @pytest.fixture(autouse=True)
 def apply_overrides():
     app.dependency_overrides[get_current_user] = override_staff
+    app.dependency_overrides[get_current_staff_or_admin] = override_staff
     yield
     app.dependency_overrides.clear()
 
