@@ -113,6 +113,17 @@ class WalletRepository:
                 # 3. Re-read associated order inside transaction (must precede writes)
                 o_snap = order_ref.get(transaction=transaction) if order_ref else None
 
+                if o_snap and o_snap.exists:
+                    o_dict = o_snap.to_dict() or {}
+                    if o_dict.get("status") in ("refunded", "credited"):
+                        transaction.update(refund_ref, {
+                            "status": "rejected",
+                            "reviewed_at": firestore.SERVER_TIMESTAMP,
+                            "reviewed_by": admin_uid,
+                            "reject_reason": "Order already refunded.",
+                        })
+                        return False
+
                 # ── COMPUTE VALUES ──
                 curr_balance = 0.0
                 total_added = 0.0
@@ -377,61 +388,59 @@ class WalletRepository:
         reason: Optional[str] = None,
     ) -> RefundRequestItem:
         """
-        Creates a refund request in refund_requests and sets order status to refund_pending.
+        Creates a refund request in refund_requests and sets order status to refund_pending atomically.
         """
         from fastapi import HTTPException, status as http_status
 
         order_ref = db.collection(_ORDERS_COL).document(order_id)
-        order_snap = order_ref.get()
-        if not order_snap.exists:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Order '{order_id}' not found.",
-            )
-
-        order_data = order_snap.to_dict() or {}
-        if order_data.get("userId") != user_uid:
-            raise HTTPException(
-                status_code=http_status.HTTP_403_FORBIDDEN,
-                detail="You can only request a refund for your own orders.",
-            )
-
-        curr_status = str(order_data.get("status", "")).lower()
-        if curr_status != "placed":
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=f"Refund can only be requested for orders in 'placed' status (current: {curr_status}).",
-            )
-
-        # Check for existing pending/approved refund request
-        existing_reqs = (
-            db.collection(_REFUND_REQUESTS_COL)
-            .where("order_id", "==", order_id)
-            .stream()
-        )
-        for req in existing_reqs:
-            r_data = req.to_dict() or {}
-            if r_data.get("status") in ("refund_requested", "refund_under_review", "approved", "credited"):
-                raise HTTPException(
-                    status_code=http_status.HTTP_400_BAD_REQUEST,
-                    detail=f"A refund request already exists for order '{order_id}' (status: {r_data.get('status')}).",
-                )
-
-        amount = float(order_data.get("total", 0.0))
         req_ref = db.collection(_REFUND_REQUESTS_COL).document()
 
-        doc_data = {
-            "user_uid": user_uid,
-            "order_id": order_id,
-            "amount": amount,
-            "reason": reason or "Customer requested cancellation",
-            "status": "refund_requested",
-            "created_at": firestore.SERVER_TIMESTAMP,
-            "updated_at": firestore.SERVER_TIMESTAMP,
-        }
-        req_ref.set(doc_data)
-        order_ref.update({"status": "refund_pending"})
+        tx = db.transaction()
 
+        @firestore.transactional
+        def _run_create(transaction):
+            order_snap = order_ref.get(transaction=transaction)
+            if not order_snap.exists:
+                raise ValueError("NOT_FOUND")
+
+            order_data = order_snap.to_dict() or {}
+            if order_data.get("userId") != user_uid:
+                raise ValueError("FORBIDDEN")
+
+            curr_status = str(order_data.get("status", "")).lower()
+            if curr_status != "placed":
+                raise ValueError(f"BAD_REQUEST: Refund can only be requested for orders in 'placed' status (current: {curr_status}).")
+
+            amount = float(order_data.get("total", 0.0))
+
+            doc_data = {
+                "user_uid": user_uid,
+                "order_id": order_id,
+                "amount": amount,
+                "reason": reason or "Customer requested cancellation",
+                "status": "refund_requested",
+                "created_at": firestore.SERVER_TIMESTAMP,
+                "updated_at": firestore.SERVER_TIMESTAMP,
+            }
+            
+            transaction.set(req_ref, doc_data)
+            transaction.update(order_ref, {"status": "refund_pending"})
+            
+            return doc_data
+
+        try:
+            doc_data = _run_create(tx)
+        except ValueError as exc:
+            msg = str(exc)
+            if msg == "NOT_FOUND":
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=f"Order '{order_id}' not found.")
+            elif msg == "FORBIDDEN":
+                raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail="You can only request a refund for your own orders.")
+            elif msg.startswith("BAD_REQUEST:"):
+                raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=msg.replace("BAD_REQUEST: ", ""))
+            raise HTTPException(status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=msg)
+
+        # Re-fetch to return with actual timestamps
         created_snap = req_ref.get()
         return RefundRequestItem.from_firestore(req_ref.id, created_snap.to_dict() or doc_data)
 

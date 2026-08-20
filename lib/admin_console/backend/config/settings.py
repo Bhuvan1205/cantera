@@ -44,4 +44,5 @@ BUSINESS_DAY_CLOSE_UTC_MINUTE: int = int(os.getenv("BUSINESS_DAY_CLOSE_UTC_MINUT
 # RAZORPAY_KEY_ID is public and provided via environment variable.
 RAZORPAY_KEY_ID: str = os.getenv("RAZORPAY_KEY_ID", "rzp_test_PLACEHOLDER")
 RAZORPAY_KEY_SECRET: str = os.getenv("RAZORPAY_KEY_SECRET", "")
+RAZORPAY_WEBHOOK_SECRET: str = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
 

@@ -47,7 +47,7 @@ def create_item(
     log_audit(
         action="INVENTORY_ITEM_CREATE",
         actor_uid=_admin.get("uid", "unknown"),
-        target=f"Menu/{item.id}",
+        target=f"Menu/{item.menu_id}",
         details={"name": item.name, "price": item.price, "stock": item.stock, "category": item.category},
     )
     return item

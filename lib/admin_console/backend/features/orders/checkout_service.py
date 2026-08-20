@@ -95,161 +95,204 @@ def _debit_wallet_tx(
     })
 
 
-class CheckoutService:
+@firestore.transactional
+def _decrement_stock_tx(
+    transaction: firestore.Transaction,
+    menu_ref,
+    requested_qty: int,
+) -> None:
     """
-    Orchestrates the atomic checkout pipeline (P-05, P-06):
-      1. Resolve prices, availability, and stock via single-pass batched read (db.get_all)
-      2. In-memory validation (no duplicate reads or premature writes)
-      3. Transactionally debit wallet balance (isolated transaction if payment_method == 'wallet')
-      4. Allocate scoped tokens atomically per counter
-      5. Atomic WriteBatch commit across stock updates, token sub-documents, and order document
-    """
+    P0 Fix: Authoritative transactional stock check-and-decrement.
 
+    Reads current stock inside the Firestore transaction, validates sufficiency,
+    and writes the new value atomically.  Firestore's OCC serialises concurrent
+    callers on the same document: only one commit wins per unit of stock, so
+    overselling is structurally impossible.
+    """
+    snap = menu_ref.get(transaction=transaction)
+    if not snap.exists:
+        raise ValueError(f"Menu item '{menu_ref.id}' no longer exists.")
+    m_data = snap.to_dict() or {}
+    if not is_quantified_item(m_data):
+        # Availability-only item — no numeric stock gate needed
+        return
+    current_stock = int(m_data.get("stock") or 0)
+    if current_stock < requested_qty:
+        item_name = m_data.get("name", menu_ref.id)
+        raise ValueError(
+            f"Insufficient stock for '{item_name}'. Available: {current_stock}, Requested: {requested_qty}"
+        )
+    new_stock = current_stock - requested_qty
+    updates = {"stock": new_stock}
+    if new_stock == 0:
+        updates["isAvailable"] = False
+    transaction.update(menu_ref, updates)
+
+
+class CheckoutService:
     @staticmethod
     def execute_checkout(
         user_uid: str,
         payload: CheckoutRequest,
-        actor_email: Optional[str] = None,
+        actor_email: str
     ) -> CheckoutResponse:
-        _trace_backend_step("STEP 9")
-        if not payload.items:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cart cannot be empty.",
-            )
-
-        # ── 1. Single-Pass Batched Read & In-Memory Validation ───────────────
-        unique_item_ids = list({item.menu_item_id for item in payload.items})
-        menu_refs = [db.collection("Menu").document(mid) for mid in unique_item_ids]
-        
-        # Single RPC roundtrip to fetch all menu documents
-        menu_snaps_list = db.get_all(menu_refs)
-        menu_snaps = {snap.id: snap for snap in menu_snaps_list}
-
-        # Calculate requested quantities per menu item
-        req_qty_by_id: dict[str, int] = {}
-        for item in payload.items:
-            req_qty_by_id[item.menu_item_id] = req_qty_by_id.get(item.menu_item_id, 0) + item.quantity
-
+        total_amount = 0.0
         resolved_items = []
-        category_groups: dict[str, list[dict]] = {}
-        stock_updates: list[tuple[any, dict]] = []
-        total_amount = 0
+        category_groups: dict[str, list] = {}
+        quantities: dict[str, int] = {}
 
-        # Validate existence, availability, and stock from the single snapshot
-        for item in payload.items:
-            menu_snap = menu_snaps.get(item.menu_item_id)
-            if not menu_snap or not menu_snap.exists:
+        for req_item in payload.items:
+            quantities[req_item.menu_item_id] = quantities.get(req_item.menu_item_id, 0) + req_item.quantity
+
+        menu_refs = [db.collection("Menu").document(k) for k in quantities.keys()]
+        menu_snaps = {doc.id: doc for doc in db.get_all(menu_refs)}
+
+        for item_id, qty in quantities.items():
+            snap = menu_snaps.get(item_id)
+            if not snap or not snap.exists:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Menu item '{item.menu_item_id}' not found.",
+                    detail=f"Menu item '{item_id}' not found.",
                 )
-
-            m_data = menu_snap.to_dict() or {}
-            is_avail = m_data.get("isAvailable", m_data.get("is_available", True))
-            if not is_avail:
-                name = m_data.get("name", item.menu_item_id)
+            
+            m_data = snap.to_dict() or {}
+            if not m_data.get("isAvailable", False):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Item '{name}' is currently unavailable.",
+                    detail=f"Item '{m_data.get('name', item_id)}' is currently unavailable.",
                 )
 
-            price = int(m_data.get("price", 0))
-            category = str(m_data.get("category", "general")).lower().strip()
-            item_name = str(m_data.get("name", item.menu_item_id))
-            stock_qty = m_data.get("stock")
-
-            line_total = price * item.quantity
-            total_amount += line_total
-
-            item_dict = {
-                "menu_item_id": item.menu_item_id,
-                "name": item_name,
-                # item_name is the canonical key read by queue logic in repository.start_preparation
-                "item_name": item_name,
+            price = float(m_data.get("price", 0.0))
+            category = m_data.get("category", "other")
+            total_amount += price * qty
+            
+            resolved = {
+                "menuItemId": item_id,
+                "name": m_data.get("name", "Unknown"),
+                "quantity": qty,
                 "price": price,
-                "quantity": item.quantity,
                 "category": category,
-                "current_stock": stock_qty,
-                # prep_units is required by queue insertion; 0.0 for non-Smart-Prep categories
-                "prep_units": _calc_prep_units(item.quantity) if category in _SMART_PREP_CATS else 0.0,
             }
-            resolved_items.append(item_dict)
-            category_groups.setdefault(category, []).append(item_dict)
+            resolved_items.append(resolved)
+            
+            if category not in category_groups:
+                category_groups[category] = []
+            category_groups[category].append(resolved)
 
-        # Validate stock levels across all requested items (skip availability-only items)
-        for item_id, total_req_qty in req_qty_by_id.items():
-            menu_snap = menu_snaps[item_id]
-            m_data = menu_snap.to_dict() or {}
-
-            # Availability-only items bypass numeric stock tracking & deduction
-            if not is_quantified_item(m_data):
-                continue
-
-            stock = m_data.get("stock")
-            if stock is not None:
-                current_stock = int(stock)
-                if current_stock < total_req_qty:
-                    item_name = str(m_data.get("name", item_id))
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Insufficient stock for '{item_name}'. Available: {current_stock}, Requested: {total_req_qty}",
-                    )
-                new_stock = current_stock - total_req_qty
-                updates = {"stock": new_stock}
-                if new_stock == 0:
-                    updates["isAvailable"] = False
-                stock_updates.append((menu_snap.reference, updates))
-
-        # ── 2. Isolated Wallet Debit (if payment_method == 'wallet') ─────────
-        order_id = f"ord_{uuid.uuid4().hex[:12]}"
         payment_method = payload.payment_method.lower().strip()
-        wallet_debited = False
-
-        if payment_method == "wallet":
-            wallet_ref = db.collection("wallets").document(user_uid)
-            tx_id = f"tx_{uuid.uuid4().hex[:16]}"
-            tx_ref = db.collection("wallet_transactions").document(tx_id)
-
-            try:
-                tx = db.transaction()
-                _debit_wallet_tx(
-                    tx,
-                    wallet_ref,
-                    tx_ref,
-                    user_uid=user_uid,
-                    amount=float(total_amount),
-                    order_id=order_id,
-                )
-                wallet_debited = True
-            except Exception as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Payment failed: {str(exc)}",
-                )
-
-        # ── 3. Scoped Token Allocation ───────────────────────────────────────
+        order_id = f"ord_{uuid.uuid4().hex[:12]}"
         today_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
-        tokens_out: list[CheckoutTokenDetail] = []
-        token_docs_to_batch: list[tuple[any, dict]] = []
-        category_tokens_map: dict[str, dict] = {}
-        overall_token_num = 0
 
+        wallet_ref = db.collection("wallets").document(user_uid) if payment_method == "wallet" else None
+        tx_id = f"tx_{uuid.uuid4().hex[:16]}"
+        wallet_tx_ref = db.collection("wallet_transactions").document(tx_id) if payment_method == "wallet" else None
+        
         order_ref = db.collection("Orders").document(order_id)
         tokens_subcol = order_ref.collection("tokens")
+        
+        tracker_refs = {cat: db.collection("counter_tracker").document(f"{today_str}_{cat}") for cat in category_groups.keys()}
 
-        try:
+        tx = db.transaction()
+
+        @firestore.transactional
+        def _commit_checkout(transaction):
+            # 1. READ PHASE (MUST DO ALL READS FIRST)
+            menu_reads = {}
+            for item_id in quantities.keys():
+                menu_reads[item_id] = db.collection("Menu").document(item_id).get(transaction=transaction)
+
+            w_snap = None
+            if wallet_ref:
+                w_snap = wallet_ref.get(transaction=transaction)
+            
+            tracker_reads = {}
+            for cat, ref in tracker_refs.items():
+                tracker_reads[cat] = ref.get(transaction=transaction)
+
+            # 2. VALIDATION & STATE MUTATION (IN-MEMORY)
+            stock_updates = {}
+            for item_id, qty in quantities.items():
+                m_data = menu_reads[item_id].to_dict() or {}
+                if is_quantified_item(m_data):
+                    current_stock = int(m_data.get("stock", 0))
+                    if current_stock < qty:
+                        raise ValueError(f"STOCK_ERROR: Insufficient stock for '{m_data.get('name', item_id)}'. Available: {current_stock}, Requested: {qty}")
+                    stock_updates[item_id] = current_stock - qty
+
+            wallet_updates = {}
+            if wallet_ref:
+                if not w_snap or not w_snap.exists:
+                    raise ValueError("WALLET_ERROR: Wallet not found for user.")
+                w_data = w_snap.to_dict() or {}
+                curr_balance = float(w_data.get("balance", 0.0))
+                if curr_balance < total_amount:
+                    raise ValueError(f"WALLET_ERROR: Insufficient funds. Balance: INR {curr_balance:.2f}, Required: INR {total_amount:.2f}")
+                
+                wallet_updates["balance"] = curr_balance - total_amount
+                wallet_updates["total_spent"] = float(w_data.get("total_spent", 0.0)) + total_amount
+                wallet_updates["version"] = int(w_data.get("version", 0)) + 1
+                wallet_updates["balance_before"] = curr_balance
+
+            allocated_tokens = {}
+            tracker_updates = {}
+            for cat, t_snap in tracker_reads.items():
+                if t_snap.exists:
+                    t_data = t_snap.to_dict() or {}
+                    new_token = int(t_data.get("last_token", 0)) + 1
+                else:
+                    new_token = 1
+                allocated_tokens[cat] = new_token
+                tracker_updates[cat] = new_token
+
+            # 3. WRITE PHASE
+            # For testing crash atomicity: if ENV=="test_crash_middle", we inject failure HERE.
+            if os.environ.get("ENV") == "test_crash_middle":
+                raise RuntimeError("Injected process crash during transaction.")
+
+            for item_id, new_stock in stock_updates.items():
+                transaction.update(db.collection("Menu").document(item_id), {"stock": new_stock})
+
+            if wallet_ref:
+                transaction.update(wallet_ref, {
+                    "balance": wallet_updates["balance"],
+                    "total_spent": wallet_updates["total_spent"],
+                    "version": wallet_updates["version"],
+                    "last_updated": firestore.SERVER_TIMESTAMP,
+                })
+                transaction.set(wallet_tx_ref, {
+                    "user_uid": user_uid,
+                    "type": "debit",
+                    "amount": float(total_amount),
+                    "status": "success",
+                    "description": f"Order checkout {order_id[:8]}",
+                    "timestamp": firestore.SERVER_TIMESTAMP,
+                    "balance_before": wallet_updates["balance_before"],
+                    "balance_after": wallet_updates["balance"],
+                    "sequence_number": wallet_updates["version"],
+                    "reference_type": "checkout",
+                    "reference_id": order_id,
+                })
+
+            for cat, new_token in tracker_updates.items():
+                ref = tracker_refs[cat]
+                if tracker_reads[cat].exists:
+                    transaction.update(ref, {"last_token": new_token, "updated_at": firestore.SERVER_TIMESTAMP})
+                else:
+                    transaction.set(ref, {"last_token": new_token, "date": today_str, "counter": cat, "created_at": firestore.SERVER_TIMESTAMP, "updated_at": firestore.SERVER_TIMESTAMP})
+
+            overall_token_num = 0
+            category_tokens_map = {}
+            tokens_out = []
+            
             for category, cat_items in category_groups.items():
-                tracker_ref = db.collection("counter_tracker").document(f"{today_str}_{category}")
-                tx = db.transaction()
-                allocated_token = _allocate_scoped_token_tx(tx, tracker_ref)
+                allocated_token = allocated_tokens[category]
                 if overall_token_num == 0:
                     overall_token_num = allocated_token
 
                 is_smart_prep = category in ["mess", "continental"]
                 qr_code_data = "" if is_smart_prep else f"{order_id}:{category}:{allocated_token}"
 
-                token_doc_data = {
+                transaction.set(tokens_subcol.document(category), {
                     "token_number": allocated_token,
                     "counter": category,
                     "token_status": "placed",
@@ -257,8 +300,7 @@ class CheckoutService:
                     "qr_code_data": qr_code_data,
                     "items": cat_items,
                     "created_at": firestore.SERVER_TIMESTAMP,
-                }
-                token_docs_to_batch.append((tokens_subcol.document(category), token_doc_data))
+                })
 
                 category_tokens_map[category] = {
                     "tokenId": qr_code_data,
@@ -266,28 +308,9 @@ class CheckoutService:
                     "status": "placed",
                     "items": cat_items,
                 }
+                tokens_out.append(CheckoutTokenDetail(counter=category, token_number=allocated_token, qr_valid=True))
 
-                tokens_out.append(
-                    CheckoutTokenDetail(
-                        counter=category,
-                        token_number=allocated_token,
-                        qr_valid=True,
-                    )
-                )
-
-            # ── 4. Atomic WriteBatch Commit (Stock + Tokens + Parent Order) ───
-            batch = db.batch()
-
-            # Batch inventory stock updates
-            for ref, updates in stock_updates:
-                batch.update(ref, updates)
-
-            # Batch token documents
-            for doc_ref, doc_data in token_docs_to_batch:
-                batch.set(doc_ref, doc_data)
-
-            # Batch parent order document
-            order_doc_data = {
+            transaction.set(order_ref, {
                 "order_id": order_id,
                 "userId": user_uid,
                 "userName": payload.user_name or "Customer",
@@ -300,48 +323,23 @@ class CheckoutService:
                 "paymentMethod": payment_method,
                 "payment_status": "paid",
                 "timestamp": firestore.SERVER_TIMESTAMP,
-            }
-            batch.set(order_ref, order_doc_data)
+            })
 
-            # Commit all writes in a single RPC roundtrip
-            batch.commit()
+            return overall_token_num, tokens_out
 
+        try:
+            overall_token_num, tokens_out = _commit_checkout(tx)
+        except ValueError as exc:
+            msg = str(exc)
+            if msg.startswith("STOCK_ERROR:"):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg.replace("STOCK_ERROR: ", ""))
+            elif msg.startswith("WALLET_ERROR:"):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg.replace("WALLET_ERROR: ", ""))
+            raise
+        except HTTPException:
+            raise
         except Exception as exc:
-            # If batch commit fails and wallet was debited, refund the wallet
-            if wallet_debited:
-                try:
-                    refund_tx_ref = db.collection("wallet_transactions").document(f"tx_refund_{uuid.uuid4().hex[:12]}")
-                    wallet_ref = db.collection("wallets").document(user_uid)
-                    @firestore.transactional
-                    def _rollback_wallet(transaction):
-                        w_snap = wallet_ref.get(transaction=transaction)
-                        if w_snap.exists:
-                            curr_b = float(w_snap.to_dict().get("balance") or 0.0)
-                            curr_spent = float(w_snap.to_dict().get("total_spent") or 0.0)
-                            transaction.update(wallet_ref, {
-                                "balance": curr_b + float(total_amount),
-                                "total_spent": max(0.0, curr_spent - float(total_amount)),
-                                "updated_at": firestore.SERVER_TIMESTAMP,
-                            })
-                            transaction.set(refund_tx_ref, {
-                                "user_uid": user_uid,
-                                "type": "refund",
-                                "amount": float(total_amount),
-                                "reference_id": order_id,
-                                "description": f"Auto-refund failed order #{order_id[:8]}",
-                                "status": "completed",
-                                "created_at": firestore.SERVER_TIMESTAMP,
-                            })
-                    _rollback_wallet(db.transaction())
-                except Exception:
-                    pass
-
-            if isinstance(exc, HTTPException):
-                raise exc
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to finalize order: {str(exc)}",
-            )
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to finalize order: {str(exc)}")
 
         return CheckoutResponse(
             order_id=order_id,

@@ -148,26 +148,74 @@ class OrderRepository:
         """
         Creates a manual order for offline/walk-in customers.
         Stored under userId="admin_placed".
-        """
-        base_token = int(time.time() * 1000) % 100000
 
+        P1 Fix: Item prices are resolved from the authoritative Menu collection by
+        matching item name. Client-supplied prices are ignored.
+        P2 Fix: The full Firestore document dict is passed to is_quantified_item(),
+        enabling correct numeric stock tracking. Stock is validated and decremented
+        transactionally before the order is written.
+        """
+        from fastapi import HTTPException, status as http_status
+
+        base_token = int(time.time() * 1000) % 100000
+        _SMART_PREP_CATS = {"mess", "continental"}
+
+        # ── P1/P2: Resolve authoritative Menu data for every item ────────────
+        # Look up each item name in the Menu collection to obtain the canonical
+        # price and full document (needed for is_quantified_item and stock checks).
+        resolved_menu_docs: dict[str, dict] = {}   # item.name -> Firestore doc data
+        resolved_menu_refs: dict[str, any] = {}    # item.name -> DocumentReference
+
+        for item in payload.items:
+            name = item.name.strip()
+            if name in resolved_menu_docs:
+                continue
+            menu_query = db.collection(_MENU_COL).where("name", "==", name).limit(1).stream()
+            menu_snap = next(menu_query, None)
+            if menu_snap is None:
+                raise HTTPException(
+                    status_code=http_status.HTTP_404_NOT_FOUND,
+                    detail=f"Menu item '{name}' not found.",
+                )
+            resolved_menu_docs[name] = menu_snap.to_dict() or {}
+            resolved_menu_refs[name] = menu_snap.reference
+
+        # ── Validate stock for all quantified items BEFORE writing anything ──
+        # Track aggregate requested quantity per item name across payload
+        qty_by_name: dict[str, int] = {}
+        for item in payload.items:
+            n = item.name.strip()
+            qty_by_name[n] = qty_by_name.get(n, 0) + item.quantity
+
+        for name, total_qty in qty_by_name.items():
+            m_data = resolved_menu_docs[name]
+            if not is_quantified_item(m_data):
+                continue
+            current_stock = int(m_data.get("stock") or 0)
+            if current_stock < total_qty:
+                raise HTTPException(
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
+                    detail=f"Insufficient stock for '{name}'. Available: {current_stock}, Requested: {total_qty}",
+                )
+
+        # ── Build order lines using authoritative prices (P1 fix) ─────────────
         order_items_raw = []
         token_items: dict[str, list[dict]] = {}
         display_items: dict[str, list[dict]] = {}
         total = 0
 
-        _SMART_PREP_CATS = {"mess", "continental"}
-
         for item in payload.items:
-            cat = item.category.lower().strip()
-            qty = item.quantity
-            price = item.price
             name = item.name.strip()
+            m_data = resolved_menu_docs[name]
+            # P1: Derive price from Menu, not from client payload
+            authoritative_price = int(m_data.get("price", 0))
+            cat = m_data.get("category", item.category).lower().strip()
+            qty = item.quantity
 
-            total += price * qty
+            total += authoritative_price * qty
             order_items_raw.append({
                 "name": name,
-                "price": price,
+                "price": authoritative_price,
                 "quantity": qty,
                 "category": cat,
             })
@@ -175,14 +223,14 @@ class OrderRepository:
             token_items.setdefault(cat, []).append({
                 "item_name": name,
                 "quantity": qty,
-                "unit_price": price,
+                "unit_price": authoritative_price,
                 "prep_units": _calc_prep_units(qty) if cat in _SMART_PREP_CATS else 0.0,
             })
 
             display_items.setdefault(cat, []).append({
                 "name": name,
                 "quantity": qty,
-                "price": price,
+                "price": authoritative_price,
             })
 
         sorted_categories = sorted(token_items.keys())
@@ -193,8 +241,6 @@ class OrderRepository:
 
         category_tokens_map = {}
         token_data_list = []
-
-        _SMART_PREP_CATS = {"mess", "continental"}
 
         for i, cat in enumerate(sorted_categories):
             cat_token_num = (base_token + i) % 100000
@@ -218,7 +264,7 @@ class OrderRepository:
 
             if is_smart_prep:
                 queue_name = cat
-                prep_units_in_queue = sum(item["prep_units"] for item in items_for_cat)
+                prep_units_in_queue = sum(it["prep_units"] for it in items_for_cat)
 
                 # Get queue length
                 queue_snap = db.collection(_QUEUES_COL).document(queue_name).get()
@@ -261,7 +307,6 @@ class OrderRepository:
         # ── 2. Create token sub-documents & update queues ─────────────────────
         tokens_created: list[TokenDocument] = []
         for token_ref, write_map, is_smart_prep, queue_name, prep_units_in_queue, cat_token_num, token_id, items_for_cat in token_data_list:
-            print(f"DEBUG: cat={token_ref.id} is_smart_prep={is_smart_prep} queue_name={queue_name} prep_units={prep_units_in_queue}")
             token_ref.set(write_map)
             tokens_created.append(TokenDocument.from_firestore(token_ref.id, write_map))
 
@@ -281,30 +326,29 @@ class OrderRepository:
                     "total_prep_units_ahead": firestore.Increment(prep_units_in_queue),
                 }, merge=True)
 
-        # ── 3. Decrement stock for quantifiable items ────────────────────────
-        for item in payload.items:
-            if not is_quantified_item({"category": item.category, "name": item.name}):
+        # ── 3. Decrement stock transactionally for quantified items (P2 fix) ──
+        # Use resolved_menu_docs (full Firestore dicts) so is_quantified_item()
+        # evaluates correctly, and decrement inside a transaction to prevent races.
+        for name, total_qty in qty_by_name.items():
+            m_data = resolved_menu_docs[name]
+            if not is_quantified_item(m_data):
                 continue
+            doc_ref = resolved_menu_refs[name]
 
-            # Query Menu item by matching name
-            menu_query = db.collection(_MENU_COL).where("name", "==", item.name.strip()).limit(1).stream()
-            for menu_doc in menu_query:
-                doc_ref = menu_doc.reference
-                qty = item.quantity
+            @firestore.transactional
+            def _decrement(transaction, dref=doc_ref, qty=total_qty):
+                snap = dref.get(transaction=transaction)
+                if snap.exists:
+                    menu_data = snap.to_dict() or {}
+                    if "stock" in menu_data and menu_data["stock"] is not None:
+                        curr_stock = int(menu_data["stock"])
+                        new_stock = max(0, curr_stock - qty)
+                        updates = {"stock": new_stock}
+                        if new_stock == 0:
+                            updates["isAvailable"] = False
+                        transaction.update(dref, updates)
 
-                tx = db.transaction()
-
-                @firestore.transactional
-                def _decrement(transaction):
-                    snap = doc_ref.get(transaction=transaction)
-                    if snap.exists:
-                        menu_data = snap.to_dict() or {}
-                        if "stock" in menu_data and menu_data["stock"] is not None:
-                            curr_stock = int(menu_data["stock"])
-                            new_stock = max(0, curr_stock - qty)
-                            transaction.update(doc_ref, {"stock": new_stock})
-
-                _decrement(tx)
+            _decrement(db.transaction())
 
         summary = OrderSummary(
             order_id=order_id,
@@ -312,7 +356,7 @@ class OrderRepository:
             items=[
                 OrderItem(
                     name=item.name,
-                    price=item.price,
+                    price=int(resolved_menu_docs[item.name.strip()].get("price", 0)),
                     quantity=item.quantity,
                     category=item.category,
                 )
@@ -432,13 +476,14 @@ class OrderRepository:
                     m_ref.update({"stock": firestore.Increment(qty), "isAvailable": True})
 
         # 2. Refund wallet if paid via wallet
-        payment_method = str(order_data.get("payment_method", "")).lower()
+        payment_method = str(order_data.get("paymentMethod", order_data.get("payment_method", ""))).lower()
         total_amount = float(order_data.get("total", 0.0))
         if payment_method == "wallet" and total_amount > 0 and user_id:
             wallet_ref = db.collection("wallets").document(user_id)
             txn_ref = db.collection("wallet_transactions").document()
 
-            @db.transaction
+            tx = db.transaction()
+            @firestore.transactional
             def _refund_txn(transaction):
                 w_snap = wallet_ref.get(transaction=transaction)
                 curr_balance = 0.0
@@ -474,7 +519,7 @@ class OrderRepository:
                     "reference_id": order_id,
                 })
             try:
-                _refund_txn()
+                _refund_txn(tx)
             except Exception:
                 pass
 

@@ -9,6 +9,28 @@ from features.orders.schemas import CreateManualOrderRequest, ManualOrderItem
 # Ensure we're using emulator
 assert os.environ.get('FIRESTORE_EMULATOR_HOST'), "MUST USE EMULATOR"
 
+# Item names used across all queue regression tests — must exist in Menu.
+_QUEUE_TEST_MENU_ITEMS = [
+    {"name": "Masala Dosa",    "price": 50,  "category": "mess",        "isAvailable": True, "stock": None, "prep_units": 4.0},
+    {"name": "Onion Dosa",     "price": 50,  "category": "mess",        "isAvailable": True, "stock": None, "prep_units": 4.0},
+    {"name": "Plain Dosa",     "price": 40,  "category": "mess",        "isAvailable": True, "stock": None, "prep_units": 3.0},
+    {"name": "Veg Meals",      "price": 80,  "category": "mess",        "isAvailable": True, "stock": None, "prep_units": 6.0},
+    {"name": "Pizza",          "price": 100, "category": "continental", "isAvailable": True, "stock": None, "prep_units": 5.0},
+    {"name": "Old Item",       "price": 50,  "category": "mess",        "isAvailable": True, "stock": None, "prep_units": 3.0},
+]
+
+@pytest.fixture(scope="session", autouse=True)
+def seed_queue_test_menu_items():
+    """Seed Menu items required by queue regression tests (P1 fix compatibility)."""
+    seeded_ids = []
+    for item in _QUEUE_TEST_MENU_ITEMS:
+        ref = db.collection("Menu").document()
+        ref.set(item)
+        seeded_ids.append(ref.id)
+    yield
+    for doc_id in seeded_ids:
+        db.collection("Menu").document(doc_id).delete()
+
 @pytest.fixture(autouse=True)
 def clean_db():
     # Clean relevant collections before each test
@@ -23,6 +45,7 @@ def _make_manual_order(items, payment_method="wallet"):
     ]
     req = CreateManualOrderRequest(items=req_items, payment_method=payment_method)
     return OrderRepository.create_manual_order(req)
+
 
 def test_case_a_same_category_different_items():
     # Case A: Same category, different items

@@ -157,12 +157,20 @@ class WalletService {
   ///      then atomically credits the wallet via Firebase Admin SDK.
   ///
   /// Throws an [Exception] with a user-readable message on failure.
-  static Future<void> verifyDeposit(String depositId) async {
+  static Future<void> verifyDeposit({
+    required String depositId,
+    String? paymentId,
+    String? signature,
+  }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw Exception('User is not authenticated.');
 
     final idToken = await user.getIdToken();
     final uri = Uri.parse('${AppConfig.backendBaseUrl}/api/wallet/deposits/verify');
+
+    final bodyData = <String, dynamic>{'deposit_id': depositId};
+    if (paymentId != null) bodyData['razorpay_payment_id'] = paymentId;
+    if (signature != null) bodyData['razorpay_signature'] = signature;
 
     final response = await http.post(
       uri,
@@ -170,7 +178,7 @@ class WalletService {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $idToken',
       },
-      body: jsonEncode({'deposit_id': depositId}),
+      body: jsonEncode(bodyData),
     );
 
     if (response.statusCode == 200) return; // Success or idempotent already_approved.

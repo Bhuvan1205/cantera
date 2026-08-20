@@ -4,7 +4,8 @@ import uuid
 from typing import Optional
 from fastapi import HTTPException, status
 
-from config.settings import RAZORPAY_KEY_SECRET, RAZORPAY_KEY_ID
+import json
+from config.settings import RAZORPAY_KEY_SECRET, RAZORPAY_KEY_ID, RAZORPAY_WEBHOOK_SECRET
 from .repository import WalletRepository
 from .schemas import (
     CartItemRequest,
@@ -121,13 +122,104 @@ class WalletService:
         return WalletRepository.get_wallet_investigation(uid)
 
     @staticmethod
-    def verify_and_approve_deposit(deposit_id: str, user_uid: str) -> dict:
+    def handle_razorpay_webhook(body: bytes, signature: str) -> dict:
+        """
+        Secure webhook handler for Razorpay server-to-server events.
+        Mitigates network drop issues by reconciling payments automatically.
+        """
+        if not RAZORPAY_WEBHOOK_SECRET:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Webhook secret not configured.",
+            )
+            
+        if not signature:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing webhook signature.",
+            )
+
+        # 1. Verify Razorpay Webhook Signature
+        expected_sig = hmac.new(
+            RAZORPAY_WEBHOOK_SECRET.encode("utf-8"),
+            body,
+            hashlib.sha256,
+        ).hexdigest()
+        
+        if not hmac.compare_digest(expected_sig, signature):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid webhook signature.",
+            )
+
+        # 2. Parse payload
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid JSON")
+
+        event_type = payload.get("event")
+        if event_type not in ("payment.captured", "payment.authorized"):
+            return {"status": "ignored", "reason": "unhandled_event_type"}
+
+        payment_entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
+        order_id = payment_entity.get("order_id")
+        payment_id = payment_entity.get("id")
+
+        if not order_id or not payment_id:
+            return {"status": "ignored", "reason": "missing_identifiers"}
+
+        # 3. Lookup pending deposit by order_id
+        from config.firebase import db
+        from google.cloud.firestore_v1.base_query import FieldFilter
+        docs = db.collection("pending_deposits").where(filter=FieldFilter("razorpay_order_id", "==", order_id)).limit(1).stream()
+        deposit_doc = next(docs, None)
+        
+        if not deposit_doc:
+            return {"status": "ignored", "reason": "deposit_not_found"}
+            
+        deposit_id = deposit_doc.id
+        dep_data = deposit_doc.to_dict() or {}
+
+        # 4. Idempotency fast-path
+        if dep_data.get("status") == "approved":
+            return {"status": "already_approved", "deposit_id": deposit_id}
+
+        # 5. Save verified metadata safely
+        updates = {}
+        if payment_id != dep_data.get("razorpay_payment_id"):
+            updates["razorpay_payment_id"] = payment_id
+        if updates:
+            deposit_doc.reference.update(updates)
+
+        # 6. Approve and credit wallet
+        try:
+            approved = WalletRepository.approve_deposit(
+                deposit_id=deposit_id,
+                reviewed_by="razorpay-webhook",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+        if approved:
+            return {"status": "approved", "deposit_id": deposit_id}
+        else:
+            return {"status": "already_approved", "deposit_id": deposit_id}
+
+    @staticmethod
+    def verify_and_approve_deposit(
+        deposit_id: str,
+        user_uid: str,
+        razorpay_payment_id: Optional[str] = None,
+        razorpay_signature: Optional[str] = None
+    ) -> dict:
         """
         Payment verification pipeline:
           1. Read deposit from Firestore — verify it exists and belongs to user_uid.
           2. Idempotency fast-path — if deposit is already 'approved', return success
              without touching any financial state.
-          3. Signature verification:
+          3. Save client-provided signature and payment ID to Firestore if provided.
+          4. Signature verification:
              - Mock gateway: verification is explicitly skipped (test-only path).
              - Razorpay: HMAC-SHA256 signature is verified using Python stdlib
                hmac + hashlib. No Razorpay SDK is used.
@@ -135,7 +227,7 @@ class WalletService:
                If RAZORPAY_KEY_SECRET is not configured, the endpoint returns HTTP 500.
                If the signature is invalid, the endpoint returns HTTP 400 and the
                deposit is left in 'awaiting_review' — no financial state is modified.
-          4. Delegate to WalletRepository.approve_deposit() for atomic credit.
+          5. Delegate to WalletRepository.approve_deposit() for atomic credit.
 
         On any failure:
           - The deposit remains in 'awaiting_review'.
@@ -170,12 +262,22 @@ class WalletService:
                 detail=f"Deposit is not in awaiting_review state (current: {dep_data.get('status')}).",
             )
 
+        # ── 3. Save client-provided Razorpay data to Firestore ─────────────────
+        updates = {}
+        if razorpay_payment_id and razorpay_payment_id != dep_data.get("razorpay_payment_id"):
+            updates["razorpay_payment_id"] = razorpay_payment_id
+        if razorpay_signature and razorpay_signature != dep_data.get("razorpay_signature"):
+            updates["razorpay_signature"] = razorpay_signature
+            
+        if updates:
+            db.collection("pending_deposits").document(deposit_id).update(updates)
+            
         gateway = dep_data.get("gateway", "razorpay")
-        payment_id = dep_data.get("razorpay_payment_id", "")
+        payment_id = razorpay_payment_id or dep_data.get("razorpay_payment_id", "")
         order_id = dep_data.get("razorpay_order_id", "")
-        signature = dep_data.get("razorpay_signature", "")
+        signature = razorpay_signature or dep_data.get("razorpay_signature", "")
 
-        # ── 3. Signature verification ─────────────────────────────────────────
+        # ── 4. Signature verification ─────────────────────────────────────────
         if gateway == "mock":
             # Mock gateway: explicitly skip signature verification.
             # This path is ONLY for testing — no real money involved.
@@ -269,6 +371,8 @@ class WalletService:
                 detail="Deposit amount must be between ₹20 and ₹500.",
             )
 
+        # Enforce strict 2-decimal precision to prevent divergence with gateway
+        amount = round(amount, 2)
         amount_paise = int(round(amount * 100))
         dep_id = f"dep_{uuid.uuid4().hex[:16]}"
         receipt_id = f"rcpt_{dep_id[:10]}"

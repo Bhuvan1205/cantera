@@ -1,5 +1,5 @@
 from typing import Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request, Header
 
 from auth.dependencies import get_current_admin, get_current_user
 from config.logging import log_audit
@@ -53,6 +53,8 @@ def verify_deposit(
     res = WalletService.verify_and_approve_deposit(
         deposit_id=payload.deposit_id,
         user_uid=user["uid"],
+        razorpay_payment_id=payload.razorpay_payment_id,
+        razorpay_signature=payload.razorpay_signature,
     )
     log_audit(
         action="WALLET_DEPOSIT_VERIFIED",
@@ -61,6 +63,30 @@ def verify_deposit(
         details={"status": res.get("status"), "credited_amount": res.get("credited_amount")},
     )
     return res
+
+
+@router.post(
+    "/webhook/razorpay",
+    summary="Razorpay Server-to-Server Webhook",
+    description="Securely receives and reconciles payment.captured events to protect against client network drops.",
+)
+async def razorpay_webhook(
+    request: Request,
+    x_razorpay_signature: str = Header(None)
+) -> dict:
+    body = await request.body()
+    res = WalletService.handle_razorpay_webhook(
+        body=body,
+        signature=x_razorpay_signature,
+    )
+    if res.get("status") in ("approved", "already_approved"):
+        log_audit(
+            action="WALLET_WEBHOOK_VERIFIED",
+            actor_uid="razorpay-webhook",
+            target=f"pending_deposits/{res.get('deposit_id')}",
+            details={"status": res.get("status")},
+        )
+    return {"status": "ok"}
 
 
 @router.post(

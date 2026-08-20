@@ -151,7 +151,7 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
 
   void _handleRazorpaySuccess(PaymentSuccessResponse response) async {
     final amount = _parsedAmount;
-    await _submitDeposit(amount);
+    await _submitDeposit(amount, response.paymentId, response.signature);
   }
 
   void _handleRazorpayError(PaymentFailureResponse response) {
@@ -171,7 +171,7 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
     });
   }
 
-  Future<void> _submitDeposit(double amount) async {
+  Future<void> _submitDeposit(double amount, [String? paymentId, String? signature]) async {
     final depId = _currentDepositId;
     if (depId == null) {
       setState(() {
@@ -183,7 +183,11 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
 
     try {
       // Send to backend for signature verification and wallet credit.
-      await WalletService.verifyDeposit(depId);
+      await WalletService.verifyDeposit(
+        depositId: depId,
+        paymentId: paymentId,
+        signature: signature,
+      );
       if (!mounted) return;
       _showSuccessAndPop(amount);
     } catch (e) {

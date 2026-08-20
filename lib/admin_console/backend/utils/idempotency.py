@@ -18,54 +18,25 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
-        # Only inspect mutating HTTP requests on API routes
         if request.method not in MUTATING_METHODS or request.url.path in EXCLUDED_PATHS:
             return await call_next(request)
 
         idempotency_key = request.headers.get("Idempotency-Key") or request.headers.get("idempotency-key")
         if not idempotency_key:
-            # Header not provided — proceed normally without idempotency caching
             return await call_next(request)
 
         idempotency_key = idempotency_key.strip()
         if len(idempotency_key) < 8 or len(idempotency_key) > 128:
-            return JSONResponse(
-                status_code=400,
-                content={"detail": "Invalid Idempotency-Key header length. Must be 8-128 characters."},
-            )
+            return JSONResponse(status_code=400, content={"detail": "Invalid Idempotency-Key header length."})
 
         from config.firebase import db
-
         doc_ref = db.collection("idempotency_keys").document(idempotency_key)
 
         try:
-            doc_snap = doc_ref.get()
-            if doc_snap.exists:
-                data = doc_snap.to_dict() or {}
-                status_val = data.get("status")
-
-                if status_val == "in_progress":
-                    return JSONResponse(
-                        status_code=409,
-                        content={"detail": "A request with this Idempotency-Key is currently in progress. Please retry shortly."},
-                    )
-
-                if status_val == "completed":
-                    # Replay cached response
-                    cached_body = data.get("response_body", "{}")
-                    status_code = data.get("status_code", 200)
-                    logger.info(f"Replaying idempotent response for key: {idempotency_key}")
-                    return Response(
-                        content=cached_body,
-                        status_code=status_code,
-                        media_type="application/json",
-                        headers={"X-Idempotent-Replay": "true"},
-                    )
-
-            # Record lock in Firestore
             now = datetime.datetime.now(datetime.timezone.utc)
             expires_at = now + datetime.timedelta(hours=24)
-            doc_ref.set({
+            # Atomic create. Raises AlreadyExists if someone else beat us to it.
+            doc_ref.create({
                 "key": idempotency_key,
                 "status": "in_progress",
                 "endpoint": request.url.path,
@@ -73,15 +44,52 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
                 "created_at": now,
                 "expires_at": expires_at,
             })
-
+            # SUCCESS - exactly ONE thread will reach here for a given idempotency key.
         except Exception as exc:
-            logger.warning(f"Failed to check idempotency key in Firestore: {exc}. Proceeding without lock.")
+            err_msg = str(exc).lower()
+            is_already_exists = ("already exists" in err_msg) or ("409" in err_msg) or (type(exc).__name__ == "AlreadyExists")
+            
+            if is_already_exists:
+                # The lock is already held by someone else, or was recently completed.
+                try:
+                    doc_snap = doc_ref.get()
+                    if doc_snap.exists:
+                        data = doc_snap.to_dict() or {}
+                        status_val = data.get("status")
 
-        # Execute downstream request
+                        if status_val == "in_progress":
+                            return JSONResponse(
+                                status_code=409,
+                                content={"detail": "A request with this Idempotency-Key is currently in progress. Please retry shortly."},
+                            )
+                        elif status_val == "completed":
+                            cached_body = data.get("response_body", "{}")
+                            status_code = data.get("status_code", 200)
+                            return Response(
+                                content=cached_body,
+                                status_code=status_code,
+                                media_type="application/json",
+                                headers={"X-Idempotent-Replay": "true"},
+                            )
+                except Exception as inner_exc:
+                    logger.error(f"Error reading existing idempotency lock: {inner_exc}")
+                
+                # IMPORTANT: If the document no longer exists (e.g. the other thread just failed and deleted it),
+                # OR we got an error reading it, we MUST return 409 to prevent duplicate execution bypassing the lock.
+                # Do NOT fall through.
+                return JSONResponse(
+                    status_code=409, 
+                    content={"detail": "Idempotency lock state is resolving. Please retry shortly."}
+                )
+            else:
+                logger.error(f"Failed to create idempotency lock due to DB error: {exc}")
+                # Fail closed on unexpected DB errors (e.g. permission denied, network failure)
+                return JSONResponse(status_code=500, content={"detail": "Database error acquiring idempotency lock."})
+
+        # --- EXECUTE DOWNSTREAM REQUEST (Exactly 1 thread per idempotency key) ---
         try:
             response = await call_next(request)
 
-            # Only cache successful responses (2xx / 3xx)
             if response.status_code < 400:
                 response_body_bytes = [section async for section in response.body_iterator]
                 response_body_str = b"".join(response_body_bytes).decode("utf-8", errors="ignore")
@@ -93,8 +101,8 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
                         "response_body": response_body_str,
                         "completed_at": datetime.datetime.now(datetime.timezone.utc),
                     })
-                except Exception as exc:
-                    logger.warning(f"Failed to update idempotency key status to completed: {exc}")
+                except Exception:
+                    pass
 
                 return Response(
                     content=response_body_str,
@@ -103,7 +111,8 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
                     media_type=response.media_type,
                 )
             else:
-                # Request resulted in client/server error — delete in-progress lock to permit retries
+                # If the business logic fails (e.g. validation error, insufficient funds, stock empty),
+                # we DELETE the lock so the client can legitimately retry later.
                 try:
                     doc_ref.delete()
                 except Exception:
@@ -111,7 +120,7 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
                 return response
 
         except Exception as exc:
-            # Exception during processing — remove lock so client can retry
+            # If a completely unhandled 500 exception occurs in downstream logic, delete the lock.
             try:
                 doc_ref.delete()
             except Exception:

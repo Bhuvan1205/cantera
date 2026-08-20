@@ -103,12 +103,12 @@ class VerifyDepositRequest(BaseModel):
     """
     Payload for POST /api/wallet/deposits/verify.
 
-    The client sends only the deposit_id after a successful payment SDK callback.
-    The backend reads the full deposit from Firestore (gateway, payment_id,
-    signature, amount) and the user identity comes from the Firebase ID token —
-    no financial data is trusted from the client body.
+    The client sends the deposit_id, razorpay_payment_id, and razorpay_signature 
+    after a successful payment SDK callback.
     """
     deposit_id: str = Field(..., description="Firestore document ID from pending_deposits collection")
+    razorpay_payment_id: Optional[str] = Field(None, description="Razorpay payment ID from client SDK")
+    razorpay_signature: Optional[str] = Field(None, description="Razorpay signature from client SDK")
 
 
 class CreateDepositOrderRequest(BaseModel):

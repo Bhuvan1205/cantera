@@ -43,7 +43,10 @@ def test_idempotent_replay_returns_cached_response():
             "response_body": json.dumps({"status": "success", "cached": True}),
             "status_code": 200,
         }
-        mock_db.collection.return_value.document.return_value.get.return_value = mock_snap
+        mock_doc_ref = mock_db.collection.return_value.document.return_value
+        from google.api_core.exceptions import AlreadyExists
+        mock_doc_ref.create.side_effect = AlreadyExists("mock already exists")
+        mock_doc_ref.get.return_value = mock_snap
 
         valid_key = "idemp_test_uuid_98765432101234"
         response = client.post("/execute-action", headers={"Idempotency-Key": valid_key})
