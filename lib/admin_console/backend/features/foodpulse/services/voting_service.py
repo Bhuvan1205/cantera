@@ -39,25 +39,15 @@ class VotingService:
                 detail=f"Suggestion '{suggestion_id}' not found.",
             )
 
-        # Cannot vote on own suggestion
+        # 2. Cannot vote on own suggestion
         if suggestion.suggested_by == user_uid:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You cannot vote on your own suggestion.",
             )
 
-        # One vote per user
-        if VoteRepository.has_voted(suggestion_id, user_uid):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="You have already voted for this suggestion.",
-            )
-
-        # Cast vote
-        VoteRepository.cast_vote(suggestion_id, user_uid)
-
-        # Increment vote count on suggestion document
-        SuggestionRepository.update_vote_count(suggestion_id, +1)
+        # 3. Cast vote atomically (handles uniqueness check and count increment internally)
+        VoteRepository.cast_vote_transactional(suggestion_id, user_uid)
 
         # Recalculate popularity score
         new_score = AnalyticsService.compute_popularity(suggestion_id)

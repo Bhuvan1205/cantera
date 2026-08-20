@@ -61,4 +61,18 @@ abstract final class AppColors {
 
   /// Success / eco green — eco fee, success states.
   static const Color success = Color(0xFF3A7D5E);
+
+  // ── Status / Semantic Extended ────────────────────────────────────────────
+
+  /// Amber — preparing / in-progress status.
+  static const Color warning = Color(0xFFE68A00);
+
+  /// Warm brown — ready for pickup / queued status.
+  static const Color readyBrown = Color(0xFFB87333);
+
+  /// Faint image placeholder surface.
+  static const Color imagePlaceholder = Color(0xFFF3EDE4);
+
+  /// Category badge background.
+  static const Color categoryBadgeBg = Color(0xFFF0F5F2);
 }

@@ -110,11 +110,11 @@ class _TrendingSuggestionsWidgetState extends State<TrendingSuggestionsWidget> {
                         VoteButtonWidget(
                           suggestionId: item['suggestion_id'] ?? '',
                           initialVoteCount: item['vote_count'] ?? 0,
-                          onVoteChanged: (newCount, voted) {
+                          onVoteChanged: (newCount, voted) async {
                             if (voted) {
-                              FoodPulseService.vote(item['suggestion_id']);
+                              await FoodPulseService.vote(item['suggestion_id']);
                             } else {
-                              FoodPulseService.removeVote(item['suggestion_id']);
+                              await FoodPulseService.removeVote(item['suggestion_id']);
                             }
                           },
                         ),

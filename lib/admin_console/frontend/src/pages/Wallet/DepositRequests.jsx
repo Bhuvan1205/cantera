@@ -113,8 +113,7 @@ export default function DepositRequests() {
             <table className="w-full text-left font-body-md border-collapse">
               <thead>
                 <tr className="bg-surface-container-low text-on-surface-variant font-label-caps text-label-caps uppercase tracking-wider border-b border-outline-variant/20">
-                  <th className="p-table-cell-padding">Deposit ID</th>
-                  <th className="p-table-cell-padding">User UID</th>
+                  <th className="p-table-cell-padding">Customer</th>
                   <th className="p-table-cell-padding text-right">Amount</th>
                   <th className="p-table-cell-padding">Gateway / UTR</th>
                   <th className="p-table-cell-padding">Status</th>
@@ -130,24 +129,25 @@ export default function DepositRequests() {
                   const status = dep.status || 'awaiting_review';
                   const gateway = dep.gateway || dep.reference_id || dep.utr || 'Direct Topup';
                   const createdAt = dep.created_at || dep.timestamp;
+                  const customerName = dep.user_name || dep.user_email || dep.email || (uid ? `User (${uid.slice(0, 6)})` : 'Customer');
 
                   return (
                     <tr
                       key={depId}
                       className="hover:bg-surface-container-low/50 transition-colors group"
                     >
-                      <td className="p-table-cell-padding font-data-mono font-bold text-primary">
-                        {depId}
-                      </td>
-
-                      <td className="p-table-cell-padding font-data-mono text-body-sm">
-                        <Link
-                          to={`/wallet/investigation?uid=${encodeURIComponent(uid)}`}
-                          className="hover:text-primary underline truncate block max-w-[140px]"
-                          title={uid}
-                        >
-                          {uid}
-                        </Link>
+                      <td className="p-table-cell-padding font-body-sm">
+                        {uid ? (
+                          <Link
+                            to={`/wallet/investigation?uid=${encodeURIComponent(uid)}`}
+                            className="font-semibold text-on-surface hover:text-primary hover:underline truncate block max-w-[180px]"
+                            title={customerName}
+                          >
+                            {customerName}
+                          </Link>
+                        ) : (
+                          <span className="font-medium text-on-surface">{customerName}</span>
+                        )}
                       </td>
 
                       <td className="p-table-cell-padding text-right font-data-mono font-bold text-tertiary">

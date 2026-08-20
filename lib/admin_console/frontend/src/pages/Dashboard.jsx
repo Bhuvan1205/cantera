@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getHealth, ping } from '../api/auth';
+import { getUser } from '../api/users';
 import { useAuth } from '../context/AuthContext';
 import { Alert, LoadingSpinner } from '../components/common/Feedback';
 import StatusBadge from '../components/common/StatusBadge';
@@ -11,6 +12,17 @@ export default function Dashboard() {
   const [pingStatus, setPingStatus] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  // Initialise from localStorage immediately so the greeting never flashes the email.
+  // The 'admin_user' entry already exists (written by AuthContext on login).
+  // We extend it with a 'name' field the first time the API resolves.
+  const [adminName, setAdminName] = useState(() => {
+    try {
+      const saved = localStorage.getItem('admin_user');
+      return saved ? (JSON.parse(saved).name || null) : null;
+    } catch {
+      return null;
+    }
+  });
 
   const fetchStatus = async () => {
     setIsLoading(true);
@@ -33,6 +45,33 @@ export default function Dashboard() {
     fetchStatus();
   }, []);
 
+  // Fetch admin's human-readable name from the Users collection once on mount.
+  // After resolving, persist the name into the existing localStorage entry so
+  // subsequent page loads start with the correct name instantly (no flicker).
+  useEffect(() => {
+    if (!user?.uid) return;
+    getUser(user.uid)
+      .then((detail) => {
+        const name = detail?.profile?.name || detail?.name || null;
+        if (name) {
+          setAdminName(name);
+          try {
+            const saved = localStorage.getItem('admin_user');
+            const parsed = saved ? JSON.parse(saved) : {};
+            localStorage.setItem('admin_user', JSON.stringify({ ...parsed, name }));
+          } catch {
+            // localStorage write failure is non-critical.
+          }
+        }
+      })
+      .catch(() => {
+        // Silently ignore — we fall back to email below.
+      });
+  }, [user?.uid]);
+
+  // Best greeting name: cached/fetched profile name → email → 'Administrator'
+  const adminDisplayName = adminName || user?.email || 'Administrator';
+
   return (
     <div className="p-lg md:p-xl space-y-xl max-w-7xl mx-auto">
       {/* Welcome Banner */}
@@ -43,7 +82,7 @@ export default function Dashboard() {
             <span>Administrative Session Active</span>
           </div>
           <h1 className="font-display-lg text-display-lg font-bold">
-            Welcome back, {user?.email || 'Administrator'}
+            Welcome back, {adminDisplayName}
           </h1>
           <p className="font-body-md text-on-primary-container max-w-xl">
             Live operations overview, service health monitoring, and administrative access control.
@@ -82,7 +121,7 @@ export default function Dashboard() {
           <div className="font-title-sm text-on-surface">
             {isLoading ? (
               <span className="text-on-surface-variant text-body-sm">Checking...</span>
-            ) : health?.status === 'healthy' ? (
+            ) : health?.status === 'healthy' || health?.status === 'ok' ? (
               <div className="flex items-center gap-xs text-tertiary">
                 <span className="material-symbols-outlined text-[20px]">check_circle</span>
                 <span>Healthy</span>
@@ -142,7 +181,7 @@ export default function Dashboard() {
           <div className="font-title-sm text-on-surface">
             {isLoading ? (
               <span className="text-on-surface-variant text-body-sm">Checking...</span>
-            ) : health?.services?.firestore === 'connected' || health?.status === 'healthy' ? (
+            ) : health?.services?.firestore === 'connected' || health?.status === 'healthy' || health?.status === 'ok' ? (
               <div className="flex items-center gap-xs text-tertiary">
                 <span className="material-symbols-outlined text-[20px]">cloud_done</span>
                 <span>Connected</span>

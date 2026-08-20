@@ -7,6 +7,8 @@
     margin: 0;
     padding: 0;
     font-family: 'Inter', sans-serif;
+    background-color: #F9F5EF;
+    color: #12251D;
   }
   body {
     overscroll-behavior: none;

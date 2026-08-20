@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getRefund, updateRefundStatus } from '../../api/wallet';
+import { getUser } from '../../api/users';
 import { getErrorMessage } from '../../api/client';
 import { Alert, LoadingSpinner } from '../../components/common/Feedback';
 import StatusBadge from '../../components/common/StatusBadge';
@@ -10,6 +11,7 @@ export default function RefundDetails() {
   const refundId = id;
 
   const [refund, setRefund] = useState(null);
+  const [customerDisplay, setCustomerDisplay] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState(null);
@@ -32,6 +34,19 @@ export default function RefundDetails() {
     try {
       const data = await getRefund(queryId);
       setRefund(data);
+
+      // Resolve a human-readable customer identity for this refund.
+      const uid = data?.user_uid || data?.userId;
+      if (uid) {
+        try {
+          const userDetail = await getUser(uid);
+          const name = userDetail?.profile?.name || userDetail?.name || null;
+          const email = userDetail?.profile?.email || userDetail?.email || null;
+          setCustomerDisplay(name || email || null);
+        } catch {
+          setCustomerDisplay(null);
+        }
+      }
     } catch (err) {
       setError(getErrorMessage(err, `Failed to load refund request: ${queryId}`));
     } finally {
@@ -157,12 +172,13 @@ export default function RefundDetails() {
 
           <div className="space-y-sm text-body-md divide-y divide-outline-variant/10">
             <div className="flex justify-between py-xs">
-              <span className="text-on-surface-variant">User UID</span>
+              <span className="text-on-surface-variant">Customer</span>
               <Link
                 to={`/users/${encodeURIComponent(userUid)}`}
-                className="font-data-mono text-primary hover:underline"
+                className="font-medium text-primary hover:underline max-w-[180px] truncate text-right"
+                title={userUid}
               >
-                {userUid}
+                {customerDisplay || userUid}
               </Link>
             </div>
             <div className="flex justify-between py-xs">

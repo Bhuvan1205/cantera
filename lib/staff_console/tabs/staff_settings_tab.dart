@@ -1,7 +1,7 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../theme/app_colors.dart';
+import '../../user_console/services/auth_service.dart';
 
 /// The settings tab of the Canteen Staff Terminal.
 ///
@@ -26,13 +26,13 @@ class StaffSettingsTab extends StatelessWidget {
   final ValueChanged<bool> onDailySummaryChanged;
 
   Future<void> _logout() async {
-    await FirebaseAuth.instance.signOut();
+    await AuthService.signOut();
   }
 
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 110), // Padding to clear bottom nav
+      padding: EdgeInsets.fromLTRB(18, 16, 18, MediaQuery.of(context).padding.bottom + 88),
       children: [
         // Header Section
         const Text(
@@ -219,8 +219,6 @@ class _ScheduleRow extends StatelessWidget {
               color: valueColor ?? AppColors.primary,
             ),
           ),
-          const SizedBox(width: 6),
-          const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted, size: 20),
         ],
       ),
     );
@@ -399,48 +397,25 @@ class _TeamManagementCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Row(
-            children: List.generate(4, (index) {
-              if (index == 3) {
-                return Transform.translate(
-                  offset: Offset(-index * 10, 0),
-                  child: Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.cardBg, width: 2),
-                    ),
-                    alignment: Alignment.center,
-                    child: const Text(
-                      '+5',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                );
-              }
-
+            children: List.generate(3, (index) {
+              final labels = ['A', 'M', 'S'];
               return Transform.translate(
                 offset: Offset(-index * 10, 0),
                 child: Container(
                   width: 32,
                   height: 32,
                   decoration: BoxDecoration(
+                    color: AppColors.primary,
                     shape: BoxShape.circle,
                     border: Border.all(color: AppColors.cardBg, width: 2),
-                    image: DecorationImage(
-                      image: NetworkImage(
-                        [
-                          'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=300&q=80',
-                          'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=300&q=80',
-                          'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80',
-                        ][index],
-                      ),
-                      fit: BoxFit.cover,
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    labels[index],
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
@@ -449,7 +424,7 @@ class _TeamManagementCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           const Text(
-            '8 Staff members active today with operational roles.',
+            'Staff members active today with operational roles.',
             style: TextStyle(
               height: 1.4,
               fontSize: 14,
@@ -461,10 +436,10 @@ class _TeamManagementCard extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: () {},
+              onPressed: null,
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
+                disabledBackgroundColor: AppColors.border,
+                disabledForegroundColor: AppColors.textMuted,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -472,7 +447,7 @@ class _TeamManagementCard extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
               child: const Text(
-                'Manage Permissions',
+                'Manage Permissions (Unavailable)',
                 style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
               ),
             ),
@@ -571,7 +546,6 @@ class _SettingItem extends StatelessWidget {
               ],
             ),
           ),
-          const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted, size: 20),
         ],
       ),
     );

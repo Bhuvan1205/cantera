@@ -183,15 +183,46 @@ class VoteRepository:
         return db.collection(_VOTES_COL).document(doc_id).get().exists
 
     @staticmethod
-    def cast_vote(suggestion_id: str, user_uid: str) -> VoteRecord:
+    def cast_vote_transactional(suggestion_id: str, user_uid: str) -> VoteRecord:
+        from fastapi import HTTPException, status
+        
         doc_id = VoteRepository._vote_doc_id(suggestion_id, user_uid)
-        data = {
-            "suggestion_id": suggestion_id,
-            "user_id": user_uid,
-            "voted_at": firestore.SERVER_TIMESTAMP,
-        }
-        db.collection(_VOTES_COL).document(doc_id).set(data)
-        return VoteRecord.from_firestore(doc_id, data)
+        vote_ref = db.collection(_VOTES_COL).document(doc_id)
+        suggestion_ref = db.collection(_SUGGESTIONS_COL).document(suggestion_id)
+
+        tx = db.transaction()
+
+        @firestore.transactional
+        def _cast_vote(transaction):
+            # 1. READ: Check if vote exists
+            vote_snap = vote_ref.get(transaction=transaction)
+            if vote_snap.exists:
+                # If vote already exists, return conflict error
+                # We can't safely raise HTTPException inside a transaction retry loop,
+                # but we can return a marker and raise outside. Or raise inside if it's safe.
+                # Actually, raising inside the transaction stops retries.
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="You have already voted for this item."
+                )
+
+            # 2. WRITE: Create the vote document
+            data = {
+                "suggestion_id": suggestion_id,
+                "user_id": user_uid,
+                "voted_at": firestore.SERVER_TIMESTAMP,
+            }
+            transaction.set(vote_ref, data)
+
+            # 3. WRITE: Increment the vote_count on suggestion
+            transaction.update(suggestion_ref, {
+                "vote_count": firestore.Increment(1),
+                "updated_at": firestore.SERVER_TIMESTAMP,
+            })
+            
+            return VoteRecord.from_firestore(doc_id, data)
+
+        return _cast_vote(tx)
 
     @staticmethod
     def remove_vote(suggestion_id: str, user_uid: str) -> None:

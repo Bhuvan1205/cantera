@@ -90,6 +90,21 @@ export default function OrderDetails() {
   const uid = order.user_id || order.uid;
   const status = order.status || 'placed';
   const createdAt = order.created_at || order.timestamp;
+  const tokenNum = order.token_number || order.tokenNumber || order.token;
+  const orderRef = tokenNum ? `Token #${tokenNum}` : `#${orderId.slice(0, 6).toUpperCase()}`;
+
+  // Use the human-readable name already present in the order document.
+  // Fall back to email, then a short non-sensitive reference — never expose the full UID.
+  const customerDisplay =
+    order.user_name ||
+    order.user_email ||
+    (uid ? `Customer #${uid.slice(0, 6).toUpperCase()}` : null);
+
+  // Only show overall_status badge if it carries a genuinely different state than status.
+  // Normalise to lowercase to prevent "delivered" vs "Delivered" from rendering twice.
+  const showOverallStatus =
+    order.overall_status &&
+    order.overall_status.toLowerCase() !== status.toLowerCase();
 
   return (
     <div className="p-lg md:p-xl space-y-xl max-w-7xl mx-auto">
@@ -99,7 +114,7 @@ export default function OrderDetails() {
           Orders
         </Link>
         <span className="material-symbols-outlined text-[14px]">chevron_right</span>
-        <span className="text-on-surface font-medium">Order #{orderId}</span>
+        <span className="text-on-surface font-medium">Order {orderRef}</span>
       </div>
 
       {successMsg && (
@@ -112,10 +127,10 @@ export default function OrderDetails() {
         <div className="z-10 flex flex-col gap-sm">
           <div className="flex flex-wrap items-center gap-sm">
             <span className="font-display-lg text-display-lg text-on-surface">
-              Order #{orderId}
+              Order {orderRef}
             </span>
             <StatusBadge status={status} size="md" />
-            {order.overall_status && (
+            {showOverallStatus && (
               <StatusBadge status={order.overall_status} size="md" />
             )}
           </div>
@@ -133,17 +148,21 @@ export default function OrderDetails() {
               <span className="capitalize">{order.payment_method || 'Digital'}</span>
             </div>
 
-            {uid && (
+            {customerDisplay && (
               <>
                 <span className="w-1 h-1 bg-outline-variant rounded-full"></span>
                 <div className="flex items-center gap-xs">
                   <span className="material-symbols-outlined text-[18px]">person</span>
-                  <Link
-                    to={`/users/${encodeURIComponent(uid)}`}
-                    className="text-primary font-medium hover:underline"
-                  >
-                    User: {uid}
-                  </Link>
+                  {uid ? (
+                    <Link
+                      to={`/users/${encodeURIComponent(uid)}`}
+                      className="text-primary font-medium hover:underline"
+                    >
+                      {customerDisplay}
+                    </Link>
+                  ) : (
+                    <span className="font-medium text-on-surface">{customerDisplay}</span>
+                  )}
                 </div>
               </>
             )}

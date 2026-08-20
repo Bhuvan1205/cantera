@@ -61,6 +61,7 @@ class _StaffOrdersTabState extends State<StaffOrdersTab> {
                     style: const TextStyle(fontSize: 20, letterSpacing: 4, fontWeight: FontWeight.bold),
                     decoration: InputDecoration(
                       labelText: 'PIN',
+                      counterText: '',
                       errorText: localError,
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       focusedBorder: OutlineInputBorder(
@@ -205,7 +206,7 @@ class _StaffOrdersTabState extends State<StaffOrdersTab> {
         }).toList();
 
         return ListView(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 110), // Padding to clear bottom nav
+          padding: EdgeInsets.fromLTRB(18, 16, 18, MediaQuery.of(context).padding.bottom + 88),
           children: [
             // Top Section Indicator
             const Text(
@@ -255,37 +256,37 @@ class _StaffOrdersTabState extends State<StaffOrdersTab> {
                 GestureDetector(
                   onTap: () => setState(() => _selectedFilter = 'placed'),
                   child: Opacity(
-                    opacity: _selectedFilter == 'placed' ? 1.0 : 0.45,
+                    opacity: _selectedFilter == 'placed' ? 1.0 : 0.6,
                     child: StaffMetricPill(
                       label: '$placedCount PLACED',
-                      color: const Color(0xFFC94A4A),
+                      color: AppColors.error,
                     ),
                   ),
                 ),
                 GestureDetector(
                   onTap: () => setState(() => _selectedFilter = 'preparing'),
                   child: Opacity(
-                    opacity: _selectedFilter == 'preparing' ? 1.0 : 0.45,
+                    opacity: _selectedFilter == 'preparing' ? 1.0 : 0.6,
                     child: StaffMetricPill(
                       label: '$preparingCount PREPARING',
-                      color: const Color(0xFFE68A00),
+                      color: AppColors.warning,
                     ),
                   ),
                 ),
                 GestureDetector(
                   onTap: () => setState(() => _selectedFilter = 'ready_for_pickup'),
                   child: Opacity(
-                    opacity: _selectedFilter == 'ready_for_pickup' ? 1.0 : 0.45,
+                    opacity: _selectedFilter == 'ready_for_pickup' ? 1.0 : 0.6,
                     child: StaffMetricPill(
                       label: '$readyCount READY FOR PICKUP',
-                      color: const Color(0xFFB87333),
+                      color: AppColors.readyBrown,
                     ),
                   ),
                 ),
                 GestureDetector(
                   onTap: () => setState(() => _selectedFilter = 'delivered'),
                   child: Opacity(
-                    opacity: _selectedFilter == 'delivered' ? 1.0 : 0.45,
+                    opacity: _selectedFilter == 'delivered' ? 1.0 : 0.6,
                     child: StaffMetricPill(
                       label: '$deliveredCount DELIVERED',
                       color: AppColors.success,
@@ -395,7 +396,7 @@ class _StaffOrdersTabState extends State<StaffOrdersTab> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? AppColors.primary : Colors.white,
+          color: isSelected ? AppColors.primary : AppColors.cardBg,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: isSelected ? AppColors.primary : AppColors.border,

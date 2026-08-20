@@ -52,7 +52,7 @@ class StaffInventoryCard extends StatelessWidget {
       if (status == 'CRITICAL') {
         statusColor = AppColors.error;
       } else if (status == 'LOW STOCK') {
-        statusColor = const Color(0xFFD68A37);
+        statusColor = AppColors.readyBrown;
       } else {
         statusColor = AppColors.success;
       }
@@ -83,9 +83,9 @@ class StaffInventoryCard extends StatelessWidget {
               height: 76,
               child: imageUrl.isEmpty
                   ? Container(
-                      color: const Color(0xFFF3EDE4),
+                      color: AppColors.imagePlaceholder,
                       child: Icon(
-                        Icons.restaurant_menu_rounded,
+                        Icons.image_not_supported_rounded,
                         size: 24,
                         color: AppColors.primary.withValues(alpha: 0.5),
                       ),
@@ -95,7 +95,7 @@ class StaffInventoryCard extends StatelessWidget {
                           imageUrl,
                           fit: BoxFit.cover,
                           errorBuilder: (context, error, stackTrace) => Container(
-                            color: const Color(0xFFF3EDE4),
+                            color: AppColors.imagePlaceholder,
                             child: const Icon(Icons.broken_image_outlined, size: 24, color: AppColors.textMuted),
                           ),
                         )
@@ -103,7 +103,7 @@ class StaffInventoryCard extends StatelessWidget {
                           imageUrl,
                           fit: BoxFit.cover,
                           errorBuilder: (context, error, stackTrace) => Container(
-                            color: const Color(0xFFF3EDE4),
+                            color: AppColors.imagePlaceholder,
                             child: const Icon(Icons.broken_image_outlined, size: 24, color: AppColors.textMuted),
                           ),
                         ),
@@ -139,7 +139,7 @@ class StaffInventoryCard extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF0F5F2),
+                        color: AppColors.categoryBadgeBg,
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -165,15 +165,6 @@ class StaffInventoryCard extends StatelessWidget {
                     color: AppColors.primary,
                   ),
                 ),
-                const SizedBox(height: 2),
-                // Item ID
-                Text(
-                  'ID: ${itemId.toUpperCase()}',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textMuted,
-                  ),
-                ),
                 const SizedBox(height: 12),
                 // ── Bottom Row: same layout for both modes ──
                 // Left side: count/label | Right side: stepper or toggle
@@ -191,7 +182,7 @@ class StaffInventoryCard extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 9,
                                   fontWeight: FontWeight.w800,
-                                  color: Color(0xFF8A9993),
+                                  color: AppColors.textMuted,
                                   letterSpacing: 0.5,
                                 ),
                               ),
@@ -211,7 +202,7 @@ class StaffInventoryCard extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 9,
                                   fontWeight: FontWeight.w800,
-                                  color: Color(0xFF8A9993),
+                                  color: AppColors.textMuted,
                                   letterSpacing: 0.5,
                                 ),
                               ),

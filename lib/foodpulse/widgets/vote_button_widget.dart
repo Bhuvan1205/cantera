@@ -4,7 +4,7 @@ class VoteButtonWidget extends StatefulWidget {
   final String suggestionId;
   final int initialVoteCount;
   final bool initialVoted;
-  final Function(int newCount, bool voted)? onVoteChanged;
+  final Future<void> Function(int newCount, bool voted)? onVoteChanged;
 
   const VoteButtonWidget({
     super.key,
@@ -30,8 +30,12 @@ class _VoteButtonWidgetState extends State<VoteButtonWidget> {
     isVoted = widget.initialVoted;
   }
 
-  void _toggleVote() {
+  Future<void> _toggleVote() async {
     if (isProcessing) return;
+    
+    final int oldVoteCount = voteCount;
+    final bool oldIsVoted = isVoted;
+
     setState(() {
       isProcessing = true;
       if (isVoted) {
@@ -44,12 +48,29 @@ class _VoteButtonWidgetState extends State<VoteButtonWidget> {
     });
 
     if (widget.onVoteChanged != null) {
-      widget.onVoteChanged!(voteCount, isVoted);
+      try {
+        await widget.onVoteChanged!(voteCount, isVoted);
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            voteCount = oldVoteCount;
+            isVoted = oldIsVoted;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(e.toString().replaceAll('Exception: ', '')),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
     }
 
-    setState(() {
-      isProcessing = false;
-    });
+    if (mounted) {
+      setState(() {
+        isProcessing = false;
+      });
+    }
   }
 
   @override

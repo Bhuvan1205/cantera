@@ -18,19 +18,19 @@ from auth.dependencies import get_current_admin, get_current_sensitive_admin, ge
 ADMIN_CLAIMS = {
     "uid": "admin_user_001",
     "sub": "admin_user_001",
-    "email": "admin@canteen.com",
+    "email": "admin@mvsrec.edu.in",
 }
 
 NORMAL_USER_CLAIMS = {
     "uid": "normal_user_002",
     "sub": "normal_user_002",
-    "email": "user@canteen.com",
+    "email": "user@mvsrec.edu.in",
 }
 
 ADMIN_FIRESTORE_DOC = {
     "uid": "admin_user_001",
     "name": "Admin User",
-    "email": "admin@canteen.com",
+    "email": "admin@mvsrec.edu.in",
     "isAdmin": True,
     "role": "admin",
 }
@@ -38,7 +38,7 @@ ADMIN_FIRESTORE_DOC = {
 NORMAL_FIRESTORE_DOC = {
     "uid": "normal_user_002",
     "name": "Normal User",
-    "email": "user@canteen.com",
+    "email": "user@mvsrec.edu.in",
     "isAdmin": False,
     "role": "customer",
 }
@@ -276,3 +276,26 @@ def test_staff_custom_claims_with_missing_firestore_doc_denied():
             get_current_staff_or_admin(_make_bearer())
 
         assert exc_info.value.status_code == 403
+
+
+# ── Test G — Non-College Domain Rejection ─────────────────────────────────────
+
+def test_G_non_college_domain_is_denied():
+    """Test G: Valid token but non-college domain -> HTTP 403."""
+    claims = {
+        "uid": "outsider",
+        "sub": "outsider",
+        "email": "hacker@gmail.com",
+    }
+    with patch("auth.dependencies.verify_firebase_token", return_value=claims), \
+         patch("auth.dependencies.db") as mock_db:
+
+        # Even if a doc exists in Firestore, domain check should fail
+        mock_snap = _make_snap(exists=True, data={"uid": "outsider", "email": "hacker@gmail.com", "isAdmin": False, "role": "customer"})
+        mock_db.collection.return_value.document.return_value.get.return_value = mock_snap
+
+        with pytest.raises(HTTPException) as exc_info:
+            get_current_admin(_make_bearer())
+
+        assert exc_info.value.status_code == 403
+        assert "Only @mvsrec.edu.in accounts are permitted" in exc_info.value.detail

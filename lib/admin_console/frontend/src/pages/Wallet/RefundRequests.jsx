@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { listRefunds } from '../../api/wallet';
+import { getUser } from '../../api/users';
 import { getErrorMessage } from '../../api/client';
 import { Alert, LoadingSpinner, EmptyState } from '../../components/common/Feedback';
 import StatusBadge from '../../components/common/StatusBadge';
@@ -10,13 +11,38 @@ export default function RefundRequests() {
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  // Map of uid → display name/email resolved from the Users collection.
+  const [userDisplayMap, setUserDisplayMap] = useState({});
 
   const fetchRefunds = async () => {
     setIsLoading(true);
     setError(null);
     try {
       const data = await listRefunds({ status: selectedStatus });
-      setRefunds(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setRefunds(list);
+
+      // Batch-resolve human-readable identities for all unique UIDs in this page.
+      const uniqueUids = [...new Set(
+        list
+          .map((r) => r.user_uid || r.userId)
+          .filter(Boolean)
+      )];
+
+      const resolved = {};
+      await Promise.allSettled(
+        uniqueUids.map(async (uid) => {
+          try {
+            const detail = await getUser(uid);
+            const name = detail?.profile?.name || detail?.name || null;
+            const email = detail?.profile?.email || detail?.email || null;
+            resolved[uid] = name || email || null;
+          } catch {
+            resolved[uid] = null;
+          }
+        })
+      );
+      setUserDisplayMap(resolved);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to fetch refund requests.'));
     } finally {
@@ -97,9 +123,8 @@ export default function RefundRequests() {
             <table className="w-full text-left font-body-md border-collapse">
               <thead>
                 <tr className="bg-surface-container-low text-on-surface-variant font-label-caps text-label-caps uppercase tracking-wider border-b border-outline-variant/20">
-                  <th className="p-table-cell-padding">Request ID</th>
-                  <th className="p-table-cell-padding">User UID</th>
-                  <th className="p-table-cell-padding">Associated Order</th>
+                  <th className="p-table-cell-padding">Customer</th>
+                  <th className="p-table-cell-padding">Order Ref</th>
                   <th className="p-table-cell-padding text-right">Amount</th>
                   <th className="p-table-cell-padding">Status</th>
                   <th className="p-table-cell-padding">Reason</th>
@@ -113,34 +138,41 @@ export default function RefundRequests() {
                   const userUid = ref.user_uid || ref.userId || '—';
                   const orderId = ref.order_id || ref.orderId || '—';
                   const amount = Number(ref.amount || 0);
+                  // Use resolved name/email from userDisplayMap, or a neutral fallback (no UID fragment).
+                  const resolvedDisplay =
+                    (userUid !== '—' && userDisplayMap[userUid]) || null;
+                  const customerName =
+                    ref.user_name || ref.user_email || resolvedDisplay || 'Customer';
+                  const tokenNum = ref.token_number || ref.tokenNumber;
+                  const orderRef = orderId !== '—' ? (tokenNum ? `Token #${tokenNum}` : `#${orderId.slice(0, 6).toUpperCase()}`) : '—';
 
                   return (
                     <tr
                       key={reqId}
                       className="hover:bg-surface-container-low/50 transition-colors"
                     >
-                      <td className="p-table-cell-padding font-data-mono font-bold text-primary">
-                        {reqId}
-                      </td>
-
-                      <td className="p-table-cell-padding font-data-mono text-body-sm text-on-surface">
-                        <Link
-                          to={`/users/${encodeURIComponent(userUid)}`}
-                          className="hover:text-primary underline truncate max-w-[140px] block"
-                          title={userUid}
-                        >
-                          {userUid}
-                        </Link>
+                      <td className="p-table-cell-padding font-body-sm">
+                        {userUid !== '—' ? (
+                          <Link
+                            to={`/users/${encodeURIComponent(userUid)}`}
+                            className="font-semibold text-on-surface hover:text-primary hover:underline truncate block max-w-[160px]"
+                            title={customerName}
+                          >
+                            {customerName}
+                          </Link>
+                        ) : (
+                          <span className="font-medium text-on-surface">{customerName}</span>
+                        )}
                       </td>
 
                       <td className="p-table-cell-padding font-data-mono text-body-sm">
                         {orderId !== '—' ? (
                           <Link
                             to={`/orders/${encodeURIComponent(orderId)}`}
-                            className="hover:text-primary text-secondary underline truncate max-w-[140px] block"
+                            className="font-bold text-primary hover:underline truncate block max-w-[140px]"
                             title={orderId}
                           >
-                            {orderId}
+                            {orderRef}
                           </Link>
                         ) : (
                           <span className="text-outline">—</span>

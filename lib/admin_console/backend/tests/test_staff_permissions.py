@@ -12,8 +12,14 @@ client = TestClient(app, raise_server_exceptions=False)
 def override_staff():
     return {"uid": "staff_member_1", "email": "staff@example.com", "role": "staff"}
 
-app.dependency_overrides[get_current_staff_or_admin] = override_staff
 
+
+
+@pytest.fixture(autouse=True)
+def apply_overrides():
+    app.dependency_overrides[get_current_staff_or_admin] = override_staff
+    yield
+    app.dependency_overrides.clear()
 
 def test_staff_can_list_inventory():
     with patch("features.inventory.service.InventoryService.list_items") as mock_list:

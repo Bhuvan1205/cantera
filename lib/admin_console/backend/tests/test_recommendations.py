@@ -52,6 +52,12 @@ def _buzz_doc(top_items: list[dict]) -> tuple[list[dict], str]:
 # 1. AUTHENTICATION TESTS
 # ══════════════════════════════════════════════════════════════════════════════
 
+
+@pytest.fixture(autouse=True)
+def cleanup_overrides():
+    yield
+    app.dependency_overrides.clear()
+
 class TestAuthentication:
 
     def test_missing_token_returns_403(self):

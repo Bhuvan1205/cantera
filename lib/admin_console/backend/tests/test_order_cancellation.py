@@ -12,8 +12,14 @@ client = TestClient(app, raise_server_exceptions=False)
 def override_user():
     return {"uid": "cust_cancel_user", "email": "customer@example.com"}
 
-app.dependency_overrides[get_current_user] = override_user
 
+
+
+@pytest.fixture(autouse=True)
+def apply_overrides():
+    app.dependency_overrides[get_current_user] = override_user
+    yield
+    app.dependency_overrides.clear()
 
 def test_order_cancellation_order_not_found():
     with patch("features.orders.repository.OrderRepository.cancel_order") as mock_cancel:

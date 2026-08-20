@@ -32,16 +32,22 @@ void main() async {
   debugPrint('[Startup] AppConfig.backendBaseUrl: ${AppConfig.backendBaseUrl}');
   debugPrint('========================================');
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
 
-  debugPrint('[Firebase] Connected to Production Cloud Firestore');
+    debugPrint('[Firebase] Connected to Production Cloud Firestore');
 
-  FirebaseFirestore.instance.settings = const Settings(
-    persistenceEnabled: true,
-    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
-  );
+    if (!kIsWeb) {
+      FirebaseFirestore.instance.settings = const Settings(
+        persistenceEnabled: true,
+        cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+      );
+    }
+  } catch (e, st) {
+    debugPrint('[Firebase Startup Error] $e\n$st');
+  }
 
   runApp(const MyApp());
 }

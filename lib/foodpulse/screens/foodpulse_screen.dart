@@ -204,11 +204,11 @@ class _FoodPulseScreenState extends State<FoodPulseScreen> with SingleTickerProv
                                     VoteButtonWidget(
                                       suggestionId: item['id'] ?? '',
                                       initialVoteCount: item['vote_count'] ?? 0,
-                                      onVoteChanged: (newCount, voted) {
+                                      onVoteChanged: (newCount, voted) async {
                                         if (voted) {
-                                          FoodPulseService.vote(item['id']);
+                                          await FoodPulseService.vote(item['id']);
                                         } else {
-                                          FoodPulseService.removeVote(item['id']);
+                                          await FoodPulseService.removeVote(item['id']);
                                         }
                                       },
                                     ),

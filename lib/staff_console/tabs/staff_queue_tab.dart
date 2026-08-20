@@ -42,7 +42,7 @@ class StaffQueueTab extends StatelessWidget {
         }).toList();
 
         return ListView(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 110),
+          padding: EdgeInsets.fromLTRB(18, 16, 18, MediaQuery.of(context).padding.bottom + 88),
           children: [
             // Header
             const Text(
@@ -81,10 +81,13 @@ class StaffQueueTab extends StatelessWidget {
               _buildEmptyState()
             else
               ...activeQueues.map((doc) {
+                final rawName = doc.data()['item_name'] as String? ?? doc.id;
+                final formattedName = rawName.isEmpty ? rawName : rawName[0].toUpperCase() + rawName.substring(1).toLowerCase();
+                
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 20),
                   child: _QueueItemCard(
-                    itemName: doc.data()['item_name'] as String? ?? doc.id,
+                    itemName: formattedName,
                     avgPrepMins:
                         (doc.data()['avg_prep_time_mins'] as num?)?.toInt() ?? 5,
                     queue: List<Map<String, dynamic>>.from(
@@ -179,7 +182,7 @@ class _QueueItemCard extends StatelessWidget {
             child: Row(
               children: [
                 const Icon(
-                  Icons.restaurant_rounded,
+                  Icons.local_dining_rounded,
                   size: 18,
                   color: AppColors.primary,
                 ),
@@ -224,7 +227,7 @@ class _QueueItemCard extends StatelessWidget {
                 if (preparing.isNotEmpty) ...[
                   _SectionLabel(
                     label: 'NOW PREPARING',
-                    color: const Color(0xFFB87333),
+                    color: AppColors.readyBrown,
                     icon: Icons.local_fire_department_rounded,
                   ),
                   const SizedBox(height: 8),
@@ -373,48 +376,75 @@ class _TokenRowState extends State<_TokenRow> {
         ? 'Token #$tokenNumber'
         : 'Token ${tokenId.length > 6 ? tokenId.substring(0, 6) : tokenId}';
 
+    final itemsList = widget.entry['items'] as List<dynamic>? ?? [];
+    
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: widget.isPreparing
-            ? const Color(0xFFB87333).withValues(alpha: 0.07)
+            ? AppColors.readyBrown.withValues(alpha: 0.07)
             : AppColors.summaryCard,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: widget.isPreparing
-              ? const Color(0xFFB87333).withValues(alpha: 0.25)
+              ? AppColors.readyBrown.withValues(alpha: 0.25)
               : AppColors.border,
         ),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
+            margin: const EdgeInsets.only(top: 4),
             width: 8,
             height: 8,
             decoration: BoxDecoration(
               color: widget.isPreparing
-                  ? const Color(0xFFB87333)
+                  ? AppColors.readyBrown
                   : AppColors.textMuted.withValues(alpha: 0.4),
               shape: BoxShape.circle,
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              displayLabel,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: widget.isPreparing ? const Color(0xFFB87333) : AppColors.primary,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  displayLabel,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: widget.isPreparing ? AppColors.readyBrown : AppColors.primary,
+                  ),
+                ),
+                if (itemsList.isNotEmpty) const SizedBox(height: 6),
+                if (itemsList.isNotEmpty)
+                  ...itemsList.map((itemData) {
+                    final map = itemData as Map<String, dynamic>;
+                    final name = map['item_name'] as String? ?? map['name'] as String? ?? 'Unknown';
+                    final qty = (map['quantity'] as num?)?.toInt() ?? 1;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Text(
+                        '• $qty x $name',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    );
+                  }),
+              ],
             ),
           ),
           if (widget.isPreparing)
             ElevatedButton(
               onPressed: _isLoading ? null : _markPrepared,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFB87333),
+                backgroundColor: AppColors.readyBrown,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 minimumSize: Size.zero,
@@ -434,11 +464,11 @@ class _TokenRowState extends State<_TokenRow> {
                       ),
                     )
                   : const Text(
-                      'MARK PREPARED',
+                      'Mark Ready',
                       style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.8,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
                       ),
                     ),
             ),

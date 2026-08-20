@@ -66,7 +66,7 @@ export default function SuggestionList() {
                 <tr key={item.id} className="hover:bg-surface-container-low/40">
                   <td className="py-sm px-md font-medium text-on-surface">{item.name}</td>
                   <td className="py-sm px-md font-semibold text-on-surface-variant">{formatSection(item.category)}</td>
-                  <td className="py-sm px-md font-semibold text-purple-600">
+                  <td className="py-sm px-md font-bold text-primary">
                     {item.request_count || 1} requests
                   </td>
                 </tr>

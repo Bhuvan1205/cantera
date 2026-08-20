@@ -121,15 +121,15 @@ export default function PollManagement() {
       )}
 
       {/* Active Poll Display Card */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
+      <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center justify-between border-b border-outline-variant/20 pb-4 mb-4">
           <div className="flex items-center gap-3">
-            <span className="px-3 py-1 bg-purple-500/20 text-purple-300 text-xs font-bold uppercase rounded-full border border-purple-500/30">
+            <span className="px-3 py-1 bg-primary-fixed text-on-primary-fixed text-xs font-bold uppercase rounded-full">
               Active Poll
             </span>
             {activePoll && (
-              <span className="text-xs text-slate-400">
-                Total Participants: <strong className="text-white">{activePoll.total_votes}</strong>
+              <span className="text-xs text-on-surface-variant">
+                Total Participants: <strong className="text-on-surface">{activePoll.total_votes}</strong>
               </span>
             )}
           </div>
@@ -137,7 +137,7 @@ export default function PollManagement() {
             <button
               onClick={handleClosePoll}
               disabled={submitting}
-              className="px-3 py-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-semibold rounded-lg transition border border-rose-500/30 flex items-center gap-1.5"
+              className="px-3 py-1.5 bg-error-container text-on-error-container hover:bg-error/20 text-xs font-semibold rounded-lg transition flex items-center gap-1.5"
             >
               <XCircle className="w-4 h-4" />
               Close Poll
@@ -146,21 +146,21 @@ export default function PollManagement() {
         </div>
 
         {loading ? (
-          <div className="py-8 text-center text-slate-400 text-sm">Loading active poll...</div>
+          <div className="py-8 text-center text-on-surface-variant text-sm">Loading active poll...</div>
         ) : activePoll ? (
           <div className="space-y-4">
             <div className="flex justify-between items-start">
               <div>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                <span className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">
                   Section: {activePoll.section}
                 </span>
-                <h2 className="text-lg font-bold text-white mt-1">{activePoll.question}</h2>
+                <h2 className="text-lg font-bold text-on-surface mt-1">{activePoll.question}</h2>
               </div>
               {(() => {
                 const winningOpt = activePoll.options?.reduce((max, opt) => (opt.vote_count > (max?.vote_count || 0) ? opt : max), null);
                 if (winningOpt && winningOpt.vote_count > 0) {
                   return (
-                    <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold rounded-lg flex items-center gap-1">
+                    <span className="px-3 py-1 bg-tertiary-container text-on-tertiary-container text-xs font-bold rounded-lg flex items-center gap-1">
                       🏆 Winning Option: {winningOpt.text} ({winningOpt.vote_count} votes)
                     </span>
                   );
@@ -177,16 +177,16 @@ export default function PollManagement() {
                     : 0;
 
                 return (
-                  <div key={opt.id} className="bg-slate-800/60 p-3.5 rounded-xl border border-slate-700/50">
-                    <div className="flex justify-between items-center text-sm font-semibold text-slate-200 mb-1.5">
+                  <div key={opt.id} className="bg-surface p-3.5 rounded-xl border border-outline-variant/20">
+                    <div className="flex justify-between items-center text-sm font-semibold text-on-surface mb-1.5">
                       <span>{opt.text}</span>
-                      <span className="text-purple-400 font-bold">
+                      <span className="text-primary font-bold">
                         {opt.vote_count} votes ({pct}%)
                       </span>
                     </div>
-                    <div className="w-full bg-slate-700/60 h-2.5 rounded-full overflow-hidden">
+                    <div className="w-full bg-surface-container-high h-2.5 rounded-full overflow-hidden">
                       <div
-                        className="bg-gradient-to-r from-purple-500 to-indigo-500 h-full rounded-full transition-all duration-500"
+                        className="bg-primary h-full rounded-full transition-all duration-500"
                         style={{ width: `${pct}%` }}
                       />
                     </div>
@@ -196,25 +196,25 @@ export default function PollManagement() {
             </div>
           </div>
         ) : (
-          <div className="py-8 text-center text-slate-400 text-sm">
+          <div className="py-8 text-center text-on-surface-variant text-sm">
             No active poll right now. Create a new poll below!
           </div>
         )}
       </div>
 
       {/* Create New Poll Form */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-        <h2 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
-          <Plus className="w-5 h-5 text-purple-400" />
+      <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-2xl p-6 shadow-sm">
+        <h2 className="text-lg font-bold text-on-surface mb-1 flex items-center gap-2">
+          <Plus className="w-5 h-5 text-primary" />
           Create New Community Poll
         </h2>
-        <p className="text-xs text-slate-400 mb-6">
+        <p className="text-xs text-on-surface-variant mb-6">
           Publishing a new poll will automatically close any currently active poll.
         </p>
 
         <form onSubmit={handleCreatePoll} className="space-y-5">
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-2">
+            <label className="block text-xs font-semibold text-on-surface mb-2">
               Poll Question *
             </label>
             <input
@@ -222,19 +222,19 @@ export default function PollManagement() {
               required
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
-              className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+              className="w-full bg-surface-container border border-outline-variant/40 rounded-xl px-4 py-2.5 text-sm text-on-surface placeholder-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary"
               placeholder="e.g. Which item would you like to see added to the canteen?"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-2">
+            <label className="block text-xs font-semibold text-on-surface mb-2">
               Canteen Section *
             </label>
             <select
               value={section}
               onChange={(e) => setSection(e.target.value)}
-              className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-500"
+              className="w-full bg-surface-container border border-outline-variant/40 rounded-xl px-4 py-2.5 text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer capitalize"
             >
               {SECTIONS.map((sec) => (
                 <option key={sec} value={sec}>
@@ -246,14 +246,14 @@ export default function PollManagement() {
 
           <div>
             <div className="flex justify-between items-center mb-2">
-              <label className="text-xs font-semibold text-slate-300">
+              <label className="text-xs font-semibold text-on-surface">
                 Poll Options (Min 2, Max 6) *
               </label>
               {options.length < 6 && (
                 <button
                   type="button"
                   onClick={handleAddOption}
-                  className="text-xs text-purple-400 font-semibold hover:underline"
+                  className="text-xs text-primary font-semibold hover:underline"
                 >
                   + Add Option
                 </button>
@@ -268,14 +268,14 @@ export default function PollManagement() {
                     required
                     value={opt}
                     onChange={(e) => handleOptionChange(idx, e.target.value)}
-                    className="flex-1 bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                    className="flex-1 bg-surface-container border border-outline-variant/40 rounded-xl px-4 py-2 text-sm text-on-surface placeholder-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary"
                     placeholder={`Option ${idx + 1}`}
                   />
                   {options.length > 2 && (
                     <button
                       type="button"
                       onClick={() => handleRemoveOption(idx)}
-                      className="px-3 text-rose-400 hover:bg-rose-500/10 rounded-xl transition text-xs font-semibold"
+                      className="px-3 text-error hover:bg-error-container/50 rounded-xl transition text-xs font-semibold"
                     >
                       Remove
                     </button>
@@ -288,7 +288,7 @@ export default function PollManagement() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-lg shadow-purple-600/30 transition disabled:opacity-50 text-sm flex items-center justify-center gap-2"
+            className="w-full py-3 bg-primary hover:bg-primary-container text-on-primary font-bold rounded-xl shadow-sm transition disabled:opacity-50 text-sm flex items-center justify-center gap-2"
           >
             <Vote className="w-4 h-4" />
             {submitting ? 'Publishing Poll...' : 'Publish Community Poll'}

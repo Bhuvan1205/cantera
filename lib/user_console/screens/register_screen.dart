@@ -255,9 +255,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       textInputAction: TextInputAction.next,
                       autofillHints: const [AutofillHints.email],
                       validator: (value) {
-                        final text = value?.trim() ?? '';
+                        final text = value?.trim().toLowerCase() ?? '';
                         if (text.isEmpty) return 'Enter your email';
                         if (!text.contains('@')) return 'Enter a valid email';
+                        
+                        final parts = text.split('@');
+                        if (parts.length != 2 || parts[1] != 'mvsrec.edu.in') {
+                          return 'Please use your official @mvsrec.edu.in email address.';
+                        }
                         return null;
                       },
                     ),
