@@ -53,16 +53,16 @@ def test_concurrent_duplicate_votes():
     import concurrent.futures
 
     def _vote():
-        with patch("auth.dependencies.verify_firebase_token", return_value=_make_mock_token(voter_uid)):
-            response = client.post(
-                f"/foodpulse/vote/{suggestion_id}",
-                headers={"Authorization": "Bearer fake_token"}
-            )
-            return response
+        response = client.post(
+            f"/foodpulse/vote/{suggestion_id}",
+            headers={"Authorization": "Bearer fake_token"}
+        )
+        return response
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(_vote) for _ in range(10)]
-        results = [f.result() for f in concurrent.futures.as_completed(futures)]
+    with patch("auth.dependencies.verify_firebase_token", return_value=_make_mock_token(voter_uid)):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(_vote) for _ in range(10)]
+            results = [f.result() for f in concurrent.futures.as_completed(futures)]
 
     status_codes = [r.status_code for r in results]
     
