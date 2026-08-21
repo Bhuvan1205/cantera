@@ -166,12 +166,16 @@ class CheckoutService:
             category = m_data.get("category", "other")
             total_amount += price * qty
             
+            prep_units = _calc_prep_units(qty) if category in _SMART_PREP_CATS else 0.0
+            
             resolved = {
                 "menuItemId": item_id,
                 "name": m_data.get("name", "Unknown"),
+                "item_name": m_data.get("name", "Unknown"),
                 "quantity": qty,
                 "price": price,
                 "category": category,
+                "prep_units": prep_units,
             }
             resolved_items.append(resolved)
             
