@@ -321,27 +321,103 @@ class GroupOrderService:
     @staticmethod
     def checkout(caller: dict, payload):
         uid, ref = caller['uid'], db.collection('group_orders').document(payload.group_id)
+        
+        # We pre-generate an order_id so we can track success across failure boundaries.
+        order_id = f"ord_{uuid.uuid4().hex[:12]}"
+
         tx = db.transaction()
         @firestore.transactional
         def lock_tx(transaction):
             snap = ref.get(transaction=transaction)
             if not snap.exists: _error('Group order was not found.', 404)
             data = snap.to_dict() or {}
+            
+            if data.get('status') == 'COMPLETED':
+                return data, True, data.get('orderId')
+                
             if data.get('initiatorUid') != uid: _error('Only the initiator can checkout.', 403)
-            if data.get('status') != 'OPEN' or (data.get('expiresAt') and data['expiresAt'] <= _now()): _error('Group is not open for payment.', 409)
-            transaction.update(ref, {'status': 'PAYING', 'updatedAt': firestore.SERVER_TIMESTAMP})
-            return data
-        data = lock_tx(tx)
+            
+            if data.get('status') == 'PAYING':
+                # RECOVERY LOGIC
+                existing_order_id = data.get('orderId')
+                if existing_order_id:
+                    # Check if the order actually exists in Firestore
+                    o_snap = db.collection('Orders').document(existing_order_id).get(transaction=transaction)
+                    if o_snap.exists:
+                        # Checkout succeeded but group completion failed in a previous attempt.
+                        return data, True, existing_order_id
+                    else:
+                        # Checkout failed/crashed before committing. Safe to reset and lock with new order_id.
+                        transaction.update(ref, {'status': 'PAYING', 'orderId': order_id, 'updatedAt': firestore.SERVER_TIMESTAMP})
+                        return data, False, order_id
+                else:
+                    _error('Group is in a pending state. Please try again.', 409)
+
+            if data.get('status') != 'OPEN' or (data.get('expiresAt') and data['expiresAt'] <= _now()):
+                _error('Group is not open for payment.', 409)
+                
+            transaction.update(ref, {'status': 'PAYING', 'orderId': order_id, 'updatedAt': firestore.SERVER_TIMESTAMP})
+            return data, False, order_id
+
+        data, already_completed, active_order_id = lock_tx(tx)
+        
+        if already_completed:
+            # Reconstruct response from existing order
+            o_snap = db.collection('Orders').document(active_order_id).get()
+            if not o_snap.exists: _error('Order not found', 404)
+            o_data = o_snap.to_dict() or {}
+            
+            # Run tx2 to ensure locks are cleared and status is COMPLETED just in case
+            tx2 = db.transaction()
+            @firestore.transactional
+            def complete_idempotent(transaction):
+                snap = ref.get(transaction=transaction)
+                if snap.exists:
+                    group_data = snap.to_dict() or {}
+                    member_uids = group_data.get('memberUids', [])
+                    for member_uid in member_uids:
+                        l_ref = db.collection('user_group_locks').document(member_uid)
+                        l_snap = l_ref.get(transaction=transaction)
+                        if l_snap.exists and (l_snap.to_dict() or {}).get('activeGroupId') == payload.group_id:
+                            transaction.delete(l_ref)
+                    if group_data.get('status') != 'COMPLETED':
+                        transaction.update(ref, {'status': 'COMPLETED', 'paidAt': firestore.SERVER_TIMESTAMP, 'updatedAt': firestore.SERVER_TIMESTAMP})
+            complete_idempotent(tx2)
+            
+            from features.orders.schemas import CheckoutResponse, CheckoutTokenDetail
+            tokens_out = []
+            for cat, t_data in o_data.get('categoryTokens', {}).items():
+                tokens_out.append(CheckoutTokenDetail(counter=cat, token_number=t_data.get('tokenNumber', 0), qr_valid=t_data.get('tokenId') != ""))
+                
+            return CheckoutResponse(
+                order_id=active_order_id,
+                total=o_data.get('total', 0),
+                token_number=o_data.get('tokenNumber', 0),
+                status=o_data.get('status', 'placed'),
+                payment_method=o_data.get('paymentMethod', 'wallet'),
+                tokens=tokens_out
+            )
+            
+        checkout_succeeded = False
         try:
             quantities: dict[str, int] = {}
             for item in data.get('items', []): quantities[item['menuItemId']] = quantities.get(item['menuItemId'], 0) + int(item['quantity'])
-            result = CheckoutService.execute_checkout(uid, CheckoutRequest(items=[CheckoutCartItem(menu_item_id=k, quantity=v) for k, v in quantities.items()], payment_method=payload.payment_method, user_name=payload.user_name or data.get('initiatorName')), caller.get('email'))
+            
+            from features.orders.schemas import CheckoutCartItem, CheckoutRequest
+            result = CheckoutService.execute_checkout(
+                user_uid=uid, 
+                payload=CheckoutRequest(items=[CheckoutCartItem(menu_item_id=k, quantity=v) for k, v in quantities.items()], payment_method=payload.payment_method, user_name=payload.user_name or data.get('initiatorName')), 
+                actor_email=caller.get('email'),
+                order_id=active_order_id
+            )
+            checkout_succeeded = True
+            
             tx2 = db.transaction()
             @firestore.transactional
             def complete(transaction):
                 snap = ref.get(transaction=transaction)
                 if snap.exists and (snap.to_dict() or {}).get('status') == 'PAYING':
-                    group_data = snap.to_dict()
+                    group_data = snap.to_dict() or {}
                     member_uids = group_data.get('memberUids', [])
                     lock_snaps = {}
                     for member_uid in member_uids:
@@ -351,13 +427,18 @@ class GroupOrderService:
                     transaction.update(ref, {'status': 'COMPLETED', 'orderId': result.order_id, 'paidAt': firestore.SERVER_TIMESTAMP, 'updatedAt': firestore.SERVER_TIMESTAMP})
                     
                     for l_ref, l_snap in lock_snaps.items():
-                        if l_snap.exists and l_snap.to_dict().get('activeGroupId') == payload.group_id:
+                        if l_snap.exists and (l_snap.to_dict() or {}).get('activeGroupId') == payload.group_id:
                             transaction.delete(l_ref)
-            complete(tx2); return result
+            complete(tx2)
+            return result
+            
         except Exception:
-            tx3 = db.transaction()
-            @firestore.transactional
-            def unlock(transaction):
-                snap = ref.get(transaction=transaction)
-                if snap.exists and (snap.to_dict() or {}).get('status') == 'PAYING': transaction.update(ref, {'status': 'OPEN', 'updatedAt': firestore.SERVER_TIMESTAMP})
-            unlock(tx3); raise
+            if not checkout_succeeded:
+                tx3 = db.transaction()
+                @firestore.transactional
+                def unlock(transaction):
+                    snap = ref.get(transaction=transaction)
+                    if snap.exists and (snap.to_dict() or {}).get('status') == 'PAYING':
+                        transaction.update(ref, {'status': 'OPEN', 'orderId': None, 'updatedAt': firestore.SERVER_TIMESTAMP})
+                unlock(tx3)
+            raise
