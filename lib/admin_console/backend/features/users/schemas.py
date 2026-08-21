@@ -78,6 +78,16 @@ class CreateUserProfileRequest(BaseModel):
     name: str
     email: str
     phone: Optional[str] = None
+    pickup_pin: Optional[str] = None
+
+
+class PinInfoResponse(BaseModel):
+    has_pin: bool
+    last_pin_change: Optional[str] = None
+
+
+class ChangePinRequest(BaseModel):
+    new_pin: str
 
 
 class RegisterFcmTokenRequest(BaseModel):

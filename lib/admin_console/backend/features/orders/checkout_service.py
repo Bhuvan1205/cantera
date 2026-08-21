@@ -134,7 +134,8 @@ class CheckoutService:
     def execute_checkout(
         user_uid: str,
         payload: CheckoutRequest,
-        actor_email: str
+        actor_email: str,
+        order_id: Optional[str] = None
     ) -> CheckoutResponse:
         total_amount = 0.0
         resolved_items = []
@@ -166,12 +167,16 @@ class CheckoutService:
             category = m_data.get("category", "other")
             total_amount += price * qty
             
+            prep_units = _calc_prep_units(qty) if category in _SMART_PREP_CATS else 0.0
+            
             resolved = {
                 "menuItemId": item_id,
                 "name": m_data.get("name", "Unknown"),
+                "item_name": m_data.get("name", "Unknown"),
                 "quantity": qty,
                 "price": price,
                 "category": category,
+                "prep_units": prep_units,
             }
             resolved_items.append(resolved)
             
@@ -180,7 +185,7 @@ class CheckoutService:
             category_groups[category].append(resolved)
 
         payment_method = payload.payment_method.lower().strip()
-        order_id = f"ord_{uuid.uuid4().hex[:12]}"
+        order_id = order_id or f"ord_{uuid.uuid4().hex[:12]}"
         today_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
 
         wallet_ref = db.collection("wallets").document(user_uid) if payment_method == "wallet" else None
