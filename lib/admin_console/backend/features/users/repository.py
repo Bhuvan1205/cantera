@@ -192,3 +192,14 @@ class UserRepository:
             .document(token_hash)
         )
         token_ref.delete()
+
+    @staticmethod
+    def update_pickup_pin(uid: str, new_pin: str) -> None:
+        """
+        Updates the user's pickup PIN and sets the last pin change timestamp.
+        """
+        user_ref = db.collection(UserRepository._users_col).document(uid)
+        user_ref.update({
+            "pickupPin": new_pin,
+            "lastPinChange": firestore.SERVER_TIMESTAMP
+        })

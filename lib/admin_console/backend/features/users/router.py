@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 
 from auth.dependencies import get_current_admin, get_current_user
 from config.logging import log_audit
-from .schemas import UserProfile, UserDetail, CreateUserProfileRequest, RegisterFcmTokenRequest
+from .schemas import UserProfile, UserDetail, CreateUserProfileRequest, RegisterFcmTokenRequest, PinInfoResponse, ChangePinRequest
 from .service import UserService
 
 router = APIRouter()
@@ -38,6 +38,29 @@ def create_or_update_profile(
 
 
 
+@router.get(
+    "/me/pin",
+    response_model=PinInfoResponse,
+    summary="Get Pickup PIN info",
+)
+def get_pickup_pin_info(
+    current_user: dict = Depends(get_current_user),
+) -> PinInfoResponse:
+    uid = current_user["uid"]
+    return UserService.get_pickup_pin_info(uid)
+
+
+@router.post(
+    "/change-pin",
+    summary="Change Pickup PIN",
+)
+def change_pickup_pin(
+    payload: ChangePinRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    uid = current_user["uid"]
+    UserService.change_pickup_pin(uid, payload)
+    return {"status": "success", "message": "PIN updated successfully."}
 
 
 @router.get(

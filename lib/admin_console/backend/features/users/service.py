@@ -1,7 +1,7 @@
 from fastapi import HTTPException, status
 
 from .repository import UserRepository
-from .schemas import UserProfile, UserDetail, CreateUserProfileRequest
+from .schemas import UserProfile, UserDetail, CreateUserProfileRequest, PinInfoResponse, ChangePinRequest
 
 
 class UserService:
@@ -69,3 +69,50 @@ class UserService:
                 detail="FCM token must not be empty.",
             )
         UserRepository.delete_fcm_token(uid, token)
+
+    @staticmethod
+    def get_pickup_pin_info(uid: str) -> PinInfoResponse:
+        from config.firebase import db
+        user_snap = db.collection(UserRepository._users_col).document(uid).get()
+        if not user_snap.exists:
+            return PinInfoResponse(has_pin=False, last_pin_change=None)
+
+        data = user_snap.to_dict() or {}
+        has_pin = bool(data.get("pickupPin"))
+        last_change = data.get("lastPinChange")
+        last_change_str = last_change.isoformat() if last_change else None
+        
+        return PinInfoResponse(has_pin=has_pin, last_pin_change=last_change_str)
+
+    @staticmethod
+    def change_pickup_pin(uid: str, payload: ChangePinRequest) -> None:
+        new_pin = payload.new_pin.strip()
+        if len(new_pin) != 4 or not new_pin.isdigit():
+            from fastapi import HTTPException, status as http_status
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="PIN must be exactly 4 digits."
+            )
+        
+        from config.firebase import db
+        user_snap = db.collection(UserRepository._users_col).document(uid).get()
+        if not user_snap.exists:
+            from fastapi import HTTPException, status as http_status
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail="User not found."
+            )
+        
+        data = user_snap.to_dict() or {}
+        last_change = data.get("lastPinChange")
+        if last_change:
+            from datetime import datetime, timezone, timedelta
+            now = datetime.now(timezone.utc)
+            if (now - last_change) < timedelta(days=30):
+                from fastapi import HTTPException, status as http_status
+                raise HTTPException(
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
+                    detail="PIN can only be changed once every 30 days."
+                )
+                
+        UserRepository.update_pickup_pin(uid, new_pin)
